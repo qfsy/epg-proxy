@@ -15,6 +15,8 @@ const COMMON_STYLE = `
     --text-muted: #64748b;
     --border: #e2e8f0;
     --code-bg: #f1f5f9;
+    --success: #10b981;
+    --success-bg: #ecfdf5;
   }
   @media (prefers-color-scheme: dark) {
     :root {
@@ -24,6 +26,7 @@ const COMMON_STYLE = `
       --text-muted: #94a3b8;
       --border: #334155;
       --code-bg: #020617;
+      --success-bg: #064e3b;
     }
   }
   body { 
@@ -35,7 +38,7 @@ const COMMON_STYLE = `
     padding: 20px; 
     display: flex; 
     justify-content: center; 
-    align-items: center; /* 修复底部大片留白：让内容垂直居中 */
+    align-items: center; 
     min-height: 100vh; 
   }
   .container { background: var(--card-bg); width: 100%; max-width: 800px; padding: 2.5rem; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); border: 1px solid var(--border); }
@@ -47,14 +50,71 @@ const COMMON_STYLE = `
   .tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.8rem; font-weight: 600; background: var(--primary); color: white; margin-left: 8px; }
   .tag.optional { background: var(--text-muted); }
   
-  /* 代码块与复制按钮样式 */
-  .code-box { display: flex; align-items: center; background: var(--code-bg); padding: 0.5rem; border-radius: 6px; border: 1px solid var(--border); margin-top: 0.5rem; }
-  code { background: transparent; padding: 0; flex: 1; font-family: 'Menlo', 'Monaco', 'Courier New', monospace; font-size: 0.9em; word-break: break-all; color: var(--primary); overflow-x: auto; margin-right: 10px; }
-  .btn-copy { background: white; border: 1px solid var(--border); padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 0.8rem; color: var(--text); transition: all 0.2s; white-space: nowrap; }
-  .btn-copy:hover { border-color: var(--primary); color: var(--primary); }
-  .btn-copy.copied { background: #10b981; color: white; border-color: #10b981; }
-  @media (prefers-color-scheme: dark) {
-    .btn-copy { background: var(--card-bg); }
+  /* 优化后的代码块样式：整体可点击 */
+  .code-box { 
+    position: relative;
+    background: var(--code-bg); 
+    border: 1px solid var(--border); 
+    border-radius: 6px; 
+    margin-top: 0.5rem; 
+    cursor: pointer; /* 手型光标 */
+    transition: all 0.2s ease;
+    overflow: hidden;
+  }
+  
+  /* Hover 效果：轻微边框变色和背景变化暗示可点击 */
+  .code-box:hover {
+    border-color: var(--primary);
+    background-color: rgba(37, 99, 235, 0.05);
+  }
+
+  /* 点击复制成功后的状态类 */
+  .code-box.copied {
+    border-color: var(--success) !important;
+    background-color: var(--success-bg) !important;
+  }
+  .code-box.copied code {
+    color: var(--success);
+    font-weight: bold;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
+
+  code { 
+    display: block;
+    padding: 0.8rem 1rem; 
+    background: transparent;
+    font-family: 'Menlo', 'Monaco', 'Courier New', monospace; 
+    font-size: 0.9em; 
+    word-break: break-all; 
+    color: var(--primary); 
+    user-select: none; /* 防止双击选中文本，增强点击体验 */
+  }
+
+  /* 添加“点击复制”的提示文字 (Tooltip) */
+  .code-box::after {
+    content: "点击复制";
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    opacity: 0;
+    transition: opacity 0.2s;
+    pointer-events: none;
+    background: var(--card-bg);
+    padding: 2px 6px;
+    border-radius: 4px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+  }
+  .code-box:hover::after {
+    opacity: 1;
+  }
+  /* 复制成功时隐藏提示 */
+  .code-box.copied::after {
+    opacity: 0 !important;
   }
 
   ul { padding-left: 1.2rem; color: var(--text-muted); }
@@ -64,15 +124,23 @@ const COMMON_STYLE = `
   .footer { margin-top: 2rem; text-align: center; font-size: 0.85rem; color: var(--text-muted); border-top: 1px solid var(--border); padding-top: 1rem; }
 </style>
 <script>
-  function copyText(btn, text) {
+  function copyText(box, text) {
+    // 防止重复点击
+    if (box.classList.contains('copied')) return;
+
+    const codeElem = box.querySelector('code');
+    const originalText = codeElem.innerText;
+
     navigator.clipboard.writeText(text).then(() => {
-      const originalText = btn.innerText;
-      btn.innerText = '已复制';
-      btn.classList.add('copied');
+      // 切换到“已复制”状态
+      box.classList.add('copied');
+      codeElem.innerText = "✅ 已复制";
+      
+      // 1.5秒后还原
       setTimeout(() => {
-        btn.innerText = originalText;
-        btn.classList.remove('copied');
-      }, 2000);
+        box.classList.remove('copied');
+        codeElem.innerText = originalText;
+      }, 1500);
     }).catch(err => {
       console.error('Copy failed', err);
       alert('复制失败，请手动复制');
@@ -150,32 +218,29 @@ export function getUsageHTML(baseUrl) {
 <body>
     <div class="container">
         <h1><span class="icon">✅</span> EPG 服务运行中</h1>
-        <p>配置加载成功，主备双源模式就绪。您可以将以下接口地址填入您的播放器。</p>
+        <p>配置加载成功，主备双源模式就绪。点击下方链接即可复制。</p>
         
         <div class="card">
             <h3>1. DIYP 接口 (智能聚合)</h3>
             <p>支持主备源自动切换。优先查主源，无结果自动查备源。</p>
-            <div class="code-box">
+            <div class="code-box" onclick="copyText(this, '${diypUrl}')">
                 <code>${diypUrl}</code>
-                <button class="btn-copy" onclick="copyText(this, '${diypUrl}')">复制</button>
             </div>
         </div>
         
         <div class="card">
             <h3>2. XML 下载 (仅主源)</h3>
             <p>提供解压后的标准 XML 格式，适合不支持 DIYP 接口的播放器。</p>
-            <div class="code-box">
+            <div class="code-box" onclick="copyText(this, '${xmlUrl}')">
                 <code>${xmlUrl}</code>
-                <button class="btn-copy" onclick="copyText(this, '${xmlUrl}')">复制</button>
             </div>
         </div>
         
         <div class="card">
             <h3>3. GZ 下载 (仅主源)</h3>
             <p>提供压缩格式，节省带宽，推荐 TiviMate 等支持 GZ 的播放器使用。</p>
-            <div class="code-box">
+            <div class="code-box" onclick="copyText(this, '${gzUrl}')">
                 <code>${gzUrl}</code>
-                <button class="btn-copy" onclick="copyText(this, '${gzUrl}')">复制</button>
             </div>
         </div>
 
