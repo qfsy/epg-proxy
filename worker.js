@@ -21,7 +21,13 @@ export default {
     try {
       // 2. 路由分发
       switch (url.pathname) {
+        // DIYP 接口 (标准)
         case '/epg/diyp':
+          return handleDiyp(request, url, ctx, env);
+
+        // 超级直播接口 (新增支持)
+        // 很多超级直播源默认寻找 /epginfo 路径，且 JSON 结构与 DIYP 通用
+        case '/epg/epginfo':
           return handleDiyp(request, url, ctx, env);
           
         case '/epg/epg.xml':

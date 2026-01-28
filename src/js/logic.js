@@ -86,15 +86,17 @@ export async function handleDownload(ctx, targetFormat, sourceUrl, env) {
 }
 
 // =========================================================
-// 3. DIYP 接口处理 (支持主备双源)
+// 3. DIYP / 超级直播 接口处理
 // =========================================================
 
 export async function handleDiyp(request, url, ctx, env) {
-  const ch = url.searchParams.get('ch');
+  // 兼容性优化：支持 ch, channel, id 三种参数名
+  // 超级直播有时候会用 channel 或 id
+  const ch = url.searchParams.get('ch') || url.searchParams.get('channel') || url.searchParams.get('id');
   const date = url.searchParams.get('date');
 
   if (!ch || !date) {
-    return new Response(JSON.stringify({ code: 400, message: "Missing params: ch or date" }), {
+    return new Response(JSON.stringify({ code: 400, message: "Missing params: ch (or channel/id) or date" }), {
       headers: { 'content-type': 'application/json' }
     });
   }

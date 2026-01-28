@@ -4,7 +4,7 @@
 [![License](https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge)](LICENSE)
 
 一个运行在 Cloudflare Workers 上的高性能 EPG (电子节目单) 代理与转换工具。
-它可以将通用的 XMLTV 格式 EPG 转换为播放器（如 DIYP、TiviMate）所需的 JSON 接口，同时提供 XML 和 GZ 格式的流式转换下载。
+它可以将通用的 XMLTV 格式 EPG 转换为播放器（如 DIYP、超级直播、TiviMate）所需的 JSON 接口，同时提供 XML 和 GZ 格式的流式转换下载。
 
 利用 Cloudflare 的全球边缘网络，实现毫秒级响应，无需购买服务器，零成本部署。
 
@@ -12,8 +12,9 @@
 
 * **配置灵活**：支持通过环境变量设置 EPG 源，无需修改代码。
 * **全格式支持**：支持输入 `.xml` 或 `.xml.gz` 格式的 EPG 源。
-* **三合一输出**：
-    * **DIYP 接口** (`/epg/diyp`)：供播放器按需查询，支持 JSON 格式。**（支持主备源自动切换：优先查主源，失败查备源）**
+* **四合一输出**：
+    * **DIYP 接口** (`/epg/diyp`)：标准 JSON 格式。
+    * **超级直播接口** (`/epg/epginfo`)：**[新增]** 完美适配超级直播、友窝，兼容 `channel`、`id` 等参数。
     * **XML 直连** (`/epg/epg.xml`)：将源自动转为 XML 格式（流式解压）。**（仅主源）**
     * **GZ 压缩** (`/epg/epg.xml.gz`)：将源自动转为 Gzip 格式（流式压缩），节省流量。**（仅主源）**
 * **智能模糊匹配**：
@@ -72,8 +73,9 @@
 
 假设你的 Worker 域名为 `https://epg.your-domain.workers.dev`
 
-### 1. DIYP 接口 (JSON)
-用于 IPTV 播放器（如 DIYP影音、百川等）的自定义 EPG 接口。
+### 1. DIYP 接口
+* **URL**: `/epg/diyp`
+* **示例**: `.../epg/diyp?ch=CCTV1&date=2024-01-24`
 
 * **URL**: `https://epg.your-domain.workers.dev/epg/diyp`
 * **参数**:
@@ -85,13 +87,19 @@
   https://epg.your-domain.workers.dev/epg/diyp?ch=CCTV1&date=2024-01-24
   ```
 
-### 2. XML 文件下载
+### 2. 超级直播接口 (epginfo)
+* **URL**: `/epg/epginfo`
+* **特点**: 兼容性更强，支持 `ch`, `channel`, `id` 参数。
+* **逻辑**: 优先查询主源，若未找到频道或请求失败，自动查询备用源。
+* **示例**: `https://epg.your-domain.workers.dev/epg/epginfo?channel=CCTV1&date=2024-01-24`
+
+### 3. XML 文件下载
 获取解压后的 XML 文件。无论源是 xml 还是 gz，这里永远输出 xml。
 *(注：为保证性能，文件下载接口仅使用主源数据)*
 
 * **URL**: `https://epg.your-domain.workers.dev/epg/epg.xml`
 
-### 3. GZ 压缩文件下载
+### 4. GZ 压缩文件下载
 获取压缩后的 GZ 文件。无论源是 xml 还是 gz，这里永远输出 gz。推荐使用此接口以节省带宽。
 *(注：为保证性能，文件下载接口仅使用主源数据)*
 
@@ -99,7 +107,6 @@
 
 **Q: 为什么输入 "江苏卫视" 匹配不到？**
 A: 请确保使用最新版代码。旧版逻辑会移除中文字符，新版已修复此问题，完美支持中文匹配。
-
 
 ## 📄 License
 

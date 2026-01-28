@@ -57,18 +57,16 @@ const COMMON_STYLE = `
     border: 1px solid var(--border); 
     border-radius: 6px; 
     margin-top: 0.5rem; 
-    cursor: pointer; /* 手型光标 */
+    cursor: pointer; 
     transition: all 0.2s ease;
     overflow: hidden;
   }
   
-  /* Hover 效果：轻微边框变色和背景变化暗示可点击 */
   .code-box:hover {
     border-color: var(--primary);
     background-color: rgba(37, 99, 235, 0.05);
   }
 
-  /* 点击复制成功后的状态类 */
   .code-box.copied {
     border-color: var(--success) !important;
     background-color: var(--success-bg) !important;
@@ -89,10 +87,9 @@ const COMMON_STYLE = `
     font-size: 0.9em; 
     word-break: break-all; 
     color: var(--primary); 
-    user-select: none; /* 防止双击选中文本，增强点击体验 */
+    user-select: none; 
   }
 
-  /* 添加“点击复制”的提示文字 (Tooltip) */
   .code-box::after {
     content: "点击复制";
     position: absolute;
@@ -112,7 +109,6 @@ const COMMON_STYLE = `
   .code-box:hover::after {
     opacity: 1;
   }
-  /* 复制成功时隐藏提示 */
   .code-box.copied::after {
     opacity: 0 !important;
   }
@@ -125,18 +121,15 @@ const COMMON_STYLE = `
 </style>
 <script>
   function copyText(box, text) {
-    // 防止重复点击
     if (box.classList.contains('copied')) return;
 
     const codeElem = box.querySelector('code');
     const originalText = codeElem.innerText;
 
     navigator.clipboard.writeText(text).then(() => {
-      // 切换到“已复制”状态
       box.classList.add('copied');
       codeElem.innerText = "✅ 已复制";
       
-      // 1.5秒后还原
       setTimeout(() => {
         box.classList.remove('copied');
         codeElem.innerText = originalText;
@@ -203,6 +196,7 @@ export function getUsageHTML(baseUrl) {
   const dateStr = `${yyyy}-${mm}-${dd}`;
   
   const diypUrl = `${baseUrl}epg/diyp?ch=CCTV1&date=${dateStr}`;
+  const superLiveUrl = `${baseUrl}epg/epginfo?ch=CCTV1&date=${dateStr}`;
   const xmlUrl = `${baseUrl}epg/epg.xml`;
   const gzUrl = `${baseUrl}epg/epg.xml.gz`;
 
@@ -222,23 +216,31 @@ export function getUsageHTML(baseUrl) {
         
         <div class="card">
             <h3>1. DIYP 接口 (智能聚合)</h3>
-            <p>支持主备源自动切换。优先查主源，无结果自动查备源。</p>
+            <p>适用于 DIYP影音、百川 等播放器。</p>
             <div class="code-box" onclick="copyText(this, '${diypUrl}')">
                 <code>${diypUrl}</code>
             </div>
         </div>
+
+        <div class="card">
+            <h3>2. 超级直播接口 (epginfo)</h3>
+            <p>适用于 超级直播、友窝 等，兼容 <code>ch/channel/id</code> 参数。</p>
+            <div class="code-box" onclick="copyText(this, '${superLiveUrl}')">
+                <code>${superLiveUrl}</code>
+            </div>
+        </div>
         
         <div class="card">
-            <h3>2. XML 下载 (仅主源)</h3>
-            <p>提供解压后的标准 XML 格式，适合不支持 DIYP 接口的播放器。</p>
+            <h3>3. XML 下载 (仅主源)</h3>
+            <p>标准 XML 格式，适合不支持接口查询的播放器。</p>
             <div class="code-box" onclick="copyText(this, '${xmlUrl}')">
                 <code>${xmlUrl}</code>
             </div>
         </div>
         
         <div class="card">
-            <h3>3. GZ 下载 (仅主源)</h3>
-            <p>提供压缩格式，节省带宽，推荐 TiviMate 等支持 GZ 的播放器使用。</p>
+            <h3>4. GZ 下载 (仅主源)</h3>
+            <p>Gzip 压缩格式，推荐 TiviMate 使用，节省带宽。</p>
             <div class="code-box" onclick="copyText(this, '${gzUrl}')">
                 <code>${gzUrl}</code>
             </div>
