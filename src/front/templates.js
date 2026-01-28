@@ -26,7 +26,18 @@ const COMMON_STYLE = `
       --code-bg: #020617;
     }
   }
-  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; margin: 0; padding: 20px; display: flex; justify-content: center; min-height: 100vh; }
+  body { 
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; 
+    background: var(--bg); 
+    color: var(--text); 
+    line-height: 1.6; 
+    margin: 0; 
+    padding: 20px; 
+    display: flex; 
+    justify-content: center; 
+    align-items: center; /* 修复底部大片留白：让内容垂直居中 */
+    min-height: 100vh; 
+  }
   .container { background: var(--card-bg); width: 100%; max-width: 800px; padding: 2.5rem; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); border: 1px solid var(--border); }
   h1 { font-size: 1.8rem; font-weight: 700; margin-bottom: 1rem; color: var(--text); display: flex; align-items: center; gap: 10px; }
   h1 .icon { font-size: 2rem; }
@@ -35,16 +46,39 @@ const COMMON_STYLE = `
   .card h3 { margin-top: 0; font-size: 1.1rem; color: var(--text); }
   .tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.8rem; font-weight: 600; background: var(--primary); color: white; margin-left: 8px; }
   .tag.optional { background: var(--text-muted); }
-  code { background: var(--code-bg); padding: 0.2rem 0.4rem; border-radius: 4px; font-family: 'Menlo', 'Monaco', 'Courier New', monospace; font-size: 0.9em; word-break: break-all; color: var(--primary); }
-  pre { background: var(--code-bg); padding: 1rem; border-radius: 8px; overflow-x: auto; border: 1px solid var(--border); }
+  
+  /* 代码块与复制按钮样式 */
+  .code-box { display: flex; align-items: center; background: var(--code-bg); padding: 0.5rem; border-radius: 6px; border: 1px solid var(--border); margin-top: 0.5rem; }
+  code { background: transparent; padding: 0; flex: 1; font-family: 'Menlo', 'Monaco', 'Courier New', monospace; font-size: 0.9em; word-break: break-all; color: var(--primary); overflow-x: auto; margin-right: 10px; }
+  .btn-copy { background: white; border: 1px solid var(--border); padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 0.8rem; color: var(--text); transition: all 0.2s; white-space: nowrap; }
+  .btn-copy:hover { border-color: var(--primary); color: var(--primary); }
+  .btn-copy.copied { background: #10b981; color: white; border-color: #10b981; }
+  @media (prefers-color-scheme: dark) {
+    .btn-copy { background: var(--card-bg); }
+  }
+
   ul { padding-left: 1.2rem; color: var(--text-muted); }
   li { margin-bottom: 0.5rem; }
   a { color: var(--primary); text-decoration: none; }
   a:hover { text-decoration: underline; }
-  .btn { display: inline-block; background: var(--primary); color: white; padding: 0.5rem 1rem; border-radius: 6px; text-decoration: none; font-weight: 500; transition: background 0.2s; }
-  .btn:hover { background: var(--primary-hover); text-decoration: none; }
   .footer { margin-top: 2rem; text-align: center; font-size: 0.85rem; color: var(--text-muted); border-top: 1px solid var(--border); padding-top: 1rem; }
 </style>
+<script>
+  function copyText(btn, text) {
+    navigator.clipboard.writeText(text).then(() => {
+      const originalText = btn.innerText;
+      btn.innerText = '已复制';
+      btn.classList.add('copied');
+      setTimeout(() => {
+        btn.innerText = originalText;
+        btn.classList.remove('copied');
+      }, 2000);
+    }).catch(err => {
+      console.error('Copy failed', err);
+      alert('复制失败，请手动复制');
+    });
+  }
+</script>
 `;
 
 export function getSetupGuideHTML() {
@@ -99,6 +133,10 @@ export function getUsageHTML(baseUrl) {
   const mm = String(beijingTime.getMonth() + 1).padStart(2, '0');
   const dd = String(beijingTime.getDate()).padStart(2, '0');
   const dateStr = `${yyyy}-${mm}-${dd}`;
+  
+  const diypUrl = `${baseUrl}epg/diyp?ch=CCTV1&date=${dateStr}`;
+  const xmlUrl = `${baseUrl}epg/epg.xml`;
+  const gzUrl = `${baseUrl}epg/epg.xml.gz`;
 
   return `
 <!DOCTYPE html>
@@ -117,19 +155,28 @@ export function getUsageHTML(baseUrl) {
         <div class="card">
             <h3>1. DIYP 接口 (智能聚合)</h3>
             <p>支持主备源自动切换。优先查主源，无结果自动查备源。</p>
-            <code>${baseUrl}epg/diyp?ch=CCTV1&date=${dateStr}</code>
+            <div class="code-box">
+                <code>${diypUrl}</code>
+                <button class="btn-copy" onclick="copyText(this, '${diypUrl}')">复制</button>
+            </div>
         </div>
         
         <div class="card">
             <h3>2. XML 下载 (仅主源)</h3>
             <p>提供解压后的标准 XML 格式，适合不支持 DIYP 接口的播放器。</p>
-            <code>${baseUrl}epg/epg.xml</code>
+            <div class="code-box">
+                <code>${xmlUrl}</code>
+                <button class="btn-copy" onclick="copyText(this, '${xmlUrl}')">复制</button>
+            </div>
         </div>
         
         <div class="card">
             <h3>3. GZ 下载 (仅主源)</h3>
             <p>提供压缩格式，节省带宽，推荐 TiviMate 等支持 GZ 的播放器使用。</p>
-            <code>${baseUrl}epg/epg.xml.gz</code>
+            <div class="code-box">
+                <code>${gzUrl}</code>
+                <button class="btn-copy" onclick="copyText(this, '${gzUrl}')">复制</button>
+            </div>
         </div>
 
         <div class="footer">
