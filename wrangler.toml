@@ -1,0 +1,13 @@
+name = "cf-worker-epg"
+main = "worker.js"
+compatibility_date = "2024-01-29"
+
+# 观察性配置 (可选)
+# send_metrics = false
+
+# 环境变量配置说明：
+# 处于安全考虑，建议不要将敏感的 EPG_URL 直接写在这里提交到 GitHub。
+# 请在 Cloudflare Dashboard 的 Worker -> Settings -> Variables 中配置。
+# 如果非要写在这里，格式如下：
+# [vars]
+# EPG_URL = "https://example.com/file.xml"

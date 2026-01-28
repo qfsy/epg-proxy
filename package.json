@@ -1,0 +1,21 @@
+{
+  "name": "cf-worker-epg",
+  "version": "1.0.0",
+  "description": "High performance EPG proxy on Cloudflare Workers",
+  "main": "worker.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "deploy": "wrangler deploy"
+  },
+  "keywords": [
+    "cloudflare",
+    "worker",
+    "epg",
+    "proxy"
+  ],
+  "author": "gujiangjiang",
+  "license": "MIT",
+  "devDependencies": {
+    "wrangler": "^3.0.0"
+  }
+}
