@@ -1,24 +1,105 @@
 /**
- * Cloudflare Worker EPG Server (中文修复版)
- * 修复问题：解决中文频道（江苏卫视、湖南卫视）无法匹配的问题
+ * Cloudflare Worker EPG Server (全功能终极版)
+ * 功能：
+ * 1. DIYP 接口：/epg/diyp (支持模糊匹配、高性能搜索)
+ * 2. XML 直连：/epg/epg.xml (支持源格式自动转换，流式输出)
+ * 3. GZ 直连： /epg/epg.xml.gz (支持源格式自动转换，流式输出)
  */
 
+// 配置：源地址 (支持 .xml 或 .xml.gz)
 const EPG_URL = "https://raw.githubusercontent.com/kuke31/xmlgz/main/all.xml.gz";
-const CACHE_TTL = 300; 
+const CACHE_TTL = 300; // 缓存 5 分钟
 
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
-    if (url.pathname === '/epg/diyp') {
-      return handleDiyp(request, url, ctx);
+
+    // 路由分发
+    switch (url.pathname) {
+      case '/epg/diyp':
+        return handleDiyp(request, url, ctx);
+      case '/epg/epg.xml':
+        return handleDownload(ctx, 'xml');
+      case '/epg/epg.xml.gz':
+        return handleDownload(ctx, 'gz');
+      default:
+        return new Response('Usage:\n1. /epg/diyp?ch=CCTV1&date=2024-01-01\n2. /epg/epg.xml\n3. /epg/epg.xml.gz', { status: 404 });
     }
-    return new Response('Not Found. Please use /epg/diyp', { status: 404 });
   },
 };
 
+// =========================================================
+// 1. 文件下载处理模块 (XML / GZ) - 使用流式传输，不占内存
+// =========================================================
+
+async function handleDownload(ctx, targetFormat) {
+  try {
+    const cache = caches.default;
+    const cacheKey = new Request(EPG_URL, { method: "GET" });
+    
+    // 尝试从缓存获取源 Response
+    let originResponse = await cache.match(cacheKey);
+
+    if (!originResponse) {
+      // 缓存未命中，回源抓取
+      originResponse = await fetch(EPG_URL);
+      if (!originResponse.ok) return new Response("Source Error", { status: 502 });
+
+      // 存入缓存 (克隆一份用于缓存，一份用于后续处理)
+      const responseToCache = new Response(originResponse.body, originResponse);
+      responseToCache.headers.set("Cache-Control", `public, max-age=${CACHE_TTL}`);
+      ctx.waitUntil(cache.put(cacheKey, responseToCache.clone()));
+    } else {
+      // 这里的 originResponse 是从 Cache API 拿出来的，body 已经被使用过一次了
+      // Cache API 返回的 Response body 是可以读取的
+    }
+
+    // 判断源文件的格式
+    const isSourceGzip = EPG_URL.endsWith('.gz') || 
+                         (originResponse.headers.get('content-type') || '').includes('gzip') ||
+                         (originResponse.headers.get('content-encoding') || '').includes('gzip');
+
+    let finalStream = originResponse.body;
+    let contentType = "";
+
+    // 核心转换逻辑：流管道 (Pipe)
+    if (targetFormat === 'xml') {
+      contentType = "application/xml; charset=utf-8";
+      if (isSourceGzip) {
+        // 源是 gz，目标是 xml -> 解压
+        finalStream = finalStream.pipeThrough(new DecompressionStream('gzip'));
+      }
+      // 源是 xml，目标是 xml -> 直接透传 (Pass-through)
+    
+    } else if (targetFormat === 'gz') {
+      contentType = "application/gzip";
+      if (!isSourceGzip) {
+        // 源是 xml，目标是 gz -> 压缩
+        finalStream = finalStream.pipeThrough(new CompressionStream('gzip'));
+      }
+      // 源是 gz，目标是 gz -> 直接透传
+    }
+
+    return new Response(finalStream, {
+      headers: {
+        "Content-Type": contentType,
+        "Access-Control-Allow-Origin": "*",
+        "Cache-Control": `public, max-age=${CACHE_TTL}`
+      }
+    });
+
+  } catch (e) {
+    return new Response(`Stream Error: ${e.message}`, { status: 500 });
+  }
+}
+
+// =========================================================
+// 2. DIYP 接口处理模块 (JSON) - 保留之前的完美逻辑
+// =========================================================
+
 async function handleDiyp(request, url, ctx) {
   const ch = url.searchParams.get('ch');
-  const date = url.searchParams.get('date'); 
+  const date = url.searchParams.get('date');
 
   if (!ch || !date) {
     return new Response(JSON.stringify({ code: 400, message: "Missing 'ch' or 'date'" }), {
@@ -27,15 +108,15 @@ async function handleDiyp(request, url, ctx) {
   }
 
   try {
-    const xmlText = await fetchEPGData(ctx);
+    // DIYP 需要纯文本内容进行搜索，所以这里单独处理文本获取
+    const xmlText = await fetchEPGText(ctx);
     const result = smartFind(xmlText, ch, date, url.origin);
 
     if (result.programs.length === 0) {
       return new Response(JSON.stringify({ 
         code: 404, 
         message: "No programs found",
-        // 返回调试信息，告诉你实际匹配了什么
-        debug_info: `Requested '${ch}', normalized to '${normalizeName(ch)}'. Check channel name accuracy.` 
+        debug_info: `Requested '${ch}', normalized to '${normalizeName(ch)}'.` 
       }), {
         headers: { 'content-type': 'application/json; charset=utf-8' },
         status: 404
@@ -57,43 +138,46 @@ async function handleDiyp(request, url, ctx) {
   }
 }
 
-async function fetchEPGData(ctx) {
+// 辅助：获取并解压为文本 (专供 DIYP 搜索使用)
+async function fetchEPGText(ctx) {
   const cache = caches.default;
   const cacheKey = new Request(EPG_URL, { method: "GET" });
   let response = await cache.match(cacheKey);
 
   if (!response) {
     const originResponse = await fetch(EPG_URL);
-    if (!originResponse.ok) throw new Error(`Failed to fetch EPG: ${originResponse.status}`);
-
-    const isGzip = EPG_URL.endsWith('.gz') || 
-                   (originResponse.headers.get('content-type') || '').includes('gzip') ||
-                   (originResponse.headers.get('content-encoding') || '').includes('gzip');
-
-    let stream = originResponse.body;
-    if (isGzip) {
-       stream = originResponse.body.pipeThrough(new DecompressionStream('gzip'));
-    }
-
-    const text = await new Response(stream).text();
-    response = new Response(text, {
-      headers: { 'Cache-Control': `public, max-age=${CACHE_TTL}` }
-    });
-    ctx.waitUntil(cache.put(cacheKey, response.clone()));
-    return text;
+    if (!originResponse.ok) throw new Error("Fetch failed");
+    
+    // 克隆流，一份存缓存，一份读取
+    // 注意：这里我们缓存原始响应（可能是gz），这样既能服务下载，也能服务文本读取
+    const responseToCache = new Response(originResponse.body, originResponse);
+    responseToCache.headers.set("Cache-Control", `public, max-age=${CACHE_TTL}`);
+    ctx.waitUntil(cache.put(cacheKey, responseToCache.clone()));
+    
+    response = responseToCache;
   }
-  return response.text();
+
+  const isGzip = EPG_URL.endsWith('.gz') || 
+                 (response.headers.get('content-type') || '').includes('gzip') ||
+                 (response.headers.get('content-encoding') || '').includes('gzip');
+
+  let stream = response.body;
+  if (isGzip) {
+     stream = stream.pipeThrough(new DecompressionStream('gzip'));
+  }
+  return new Response(stream).text();
 }
 
+// ---------------------------------------------------------
+// 3. 搜索算法与工具函数
+// ---------------------------------------------------------
+
 function smartFind(xml, userChannelName, targetDateStr, originUrl) {
-  // 1. 归一化用户输入
   const normalizedInput = normalizeName(userChannelName);
-  
   let channelID = "";
   let icon = "";
   let realDisplayName = "";
 
-  // 2. 正则查找 Channel
   const channelRegex = /<channel id="([^"]+)">[\s\S]*?<display-name[^>]*>([^<]+)<\/display-name>[\s\S]*?(?:<icon src="([^"]+)" \/>)?[\s\S]*?<\/channel>/g;
   
   let match;
@@ -102,7 +186,6 @@ function smartFind(xml, userChannelName, targetDateStr, originUrl) {
     const nameInXml = match[2];
     const iconInXml = match[3] || "";
     
-    // 归一化 XML 中的名称并对比
     if (normalizeName(nameInXml) === normalizedInput) {
       channelID = id;
       realDisplayName = nameInXml;
@@ -111,17 +194,13 @@ function smartFind(xml, userChannelName, targetDateStr, originUrl) {
     }
   }
 
-  if (!channelID) {
-    return { programs: [], response: {} };
-  }
+  if (!channelID) return { programs: [], response: {} };
 
-  // 3. 索引查找 Programs
   const programs = [];
   const targetDateCompact = targetDateStr.replace(/-/g, '');
   const channelAttr = `channel="${channelID}"`;
   
   let pos = xml.indexOf(channelAttr);
-  
   while (pos !== -1) {
     const startTagIndex = xml.lastIndexOf('<programme', pos);
     const endTagIndex = xml.indexOf('</programme>', pos);
@@ -161,15 +240,8 @@ function smartFind(xml, userChannelName, targetDateStr, originUrl) {
   };
 }
 
-/**
- * 修复后的归一化函数：
- * 只移除空格、横杠、下划线，保留中文和特殊字符（如+号）
- */
 function normalizeName(name) {
   if (!name) return "";
-  // 1. 转大写 (CCTV -> CCTV)
-  // 2. 移除空格、横杠、下划线
-  // 结果： "CCTV-1" -> "CCTV1", "江苏卫视" -> "江苏卫视"
   return name.trim().toUpperCase().replace(/[\s\-_]/g, '');
 }
 
