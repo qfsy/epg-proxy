@@ -1,22 +1,17 @@
 /**
- * Cloudflare Worker EPG Server (零依赖在线版)
- * 功能：下载 Gzip XML -> 解压 -> 正则解析 -> JSON
- * 无需 NPM install，可直接在 Cloudflare 网页端部署
+ * Cloudflare Worker EPG Server (高性能版)
+ * 优化：放弃全文正则，改用 indexOf 跳跃查找，解决 CPU 超时问题
  */
 
-// 配置
 const EPG_URL = "https://raw.githubusercontent.com/kuke31/xmlgz/main/all.xml.gz";
-const CACHE_TTL = 300; // 缓存时间 300秒
+const CACHE_TTL = 300; // 缓存 5 分钟
 
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
-
-    // 路由匹配
     if (url.pathname === '/epg/diyp') {
       return handleDiyp(request, url, ctx);
     }
-
     return new Response('Not Found. Please use /epg/diyp', { status: 404 });
   },
 };
@@ -32,11 +27,11 @@ async function handleDiyp(request, url, ctx) {
   }
 
   try {
-    // 1. 获取并解压数据
+    // 1. 获取 XML 文本 (带缓存)
     const xmlText = await fetchEPGData(ctx);
     
-    // 2. 解析与筛选 (使用原生逻辑，不依赖库)
-    const result = parseAndFind(xmlText, ch, date, url.origin);
+    // 2. 极速筛选
+    const result = quickFind(xmlText, ch, date, url.origin);
 
     if (result.programs.length === 0) {
       return new Response(JSON.stringify({ code: 404, message: "No programs found" }), {
@@ -60,99 +55,102 @@ async function handleDiyp(request, url, ctx) {
   }
 }
 
-// 获取、解压并缓存 XML 文本
+// 获取、解压并缓存 XML 文本 (这部分没变)
 async function fetchEPGData(ctx) {
   const cache = caches.default;
   const cacheKey = new Request(EPG_URL, { method: "GET" });
-
   let response = await cache.match(cacheKey);
 
   if (!response) {
-    console.log("Cache miss, fetching...");
     const originResponse = await fetch(EPG_URL);
     if (!originResponse.ok) throw new Error("Failed to fetch EPG xml");
 
-    // 处理 Gzip 解压 (Web Standard API)
     let stream = originResponse.body;
-    // 简单判断：如果以 .gz 结尾或 content-type 包含 gzip
     if (EPG_URL.endsWith('.gz') || (originResponse.headers.get('content-type') || '').includes('gzip')) {
        stream = originResponse.body.pipeThrough(new DecompressionStream('gzip'));
     }
-
     const text = await new Response(stream).text();
-
-    // 存入缓存
     response = new Response(text, {
       headers: { 'Cache-Control': `public, max-age=${CACHE_TTL}` }
     });
-    // waitUntil 确保在返回前缓存不被中断
     ctx.waitUntil(cache.put(cacheKey, response.clone()));
     return text;
   }
-  
   return response.text();
 }
 
 /**
- * 核心逻辑：使用正则解析 XML 字符串
- * 替代 fast-xml-parser 库
+ * 核心优化逻辑：使用 indexOf 代替全局正则
+ * 速度极快，CPU 占用极低
  */
-function parseAndFind(xml, targetChannelName, targetDateStr, originUrl) {
-  // 1. 查找频道 ID 和 Icon
-  // 正则匹配 <channel id="..."> ... <display-name>CCTV1</display-name>
-  // 注意：XML 可能包含换行，使用 [\s\S]*? 或 [^]*? 来匹配多行
+function quickFind(xml, targetChannelName, targetDateStr, originUrl) {
+  // 1. 查找频道 ID (Channel ID)
+  // 策略：直接搜索 ">频道名<"，然后往前找 id="..."
+  const nameTag = `>${targetChannelName}<`;
+  const nameIndex = xml.indexOf(nameTag);
   
   let channelID = "";
   let icon = "";
-  
-  // 简单的正则提取频道块
-  const channelRegex = /<channel id="([^"]+)">[\s\S]*?<display-name>([^<]+)<\/display-name>[\s\S]*?(?:<icon src="([^"]+)" \/>)?[\s\S]*?<\/channel>/g;
-  
-  let match;
-  while ((match = channelRegex.exec(xml)) !== null) {
-    const id = match[1];
-    const name = match[2]; // display-name
-    const iconSrc = match[3] || ""; // icon (可能为空)
 
-    if (name === targetChannelName) {
-      channelID = id;
-      icon = iconSrc;
-      break; // 找到了就退出
-    }
+  if (nameIndex !== -1) {
+    // 截取频道名之前的一小段文本来找 ID (避免处理整个文件)
+    // 假设 <channel> 标签不会超过 500 个字符
+    const searchArea = xml.substring(Math.max(0, nameIndex - 500), nameIndex);
+    // 匹配 id="xxx"
+    const idMatch = searchArea.match(/id="([^"]+)"/);
+    if (idMatch) channelID = idMatch[1];
+
+    // 顺便找 icon (往后找)
+    const iconArea = xml.substring(nameIndex, nameIndex + 500);
+    const iconMatch = iconArea.match(/<icon src="([^"]+)"/);
+    if (iconMatch) icon = iconMatch[1];
   }
 
   if (!channelID) {
     return { programs: [], response: {} };
   }
 
-  // 2. 格式化目标日期 (2023-10-27 -> 20231027)
-  const targetDateCompact = targetDateStr.replace(/-/g, ''); 
-
-  // 3. 查找节目单
-  // 匹配 <programme start="..." stop="..." channel="..."> ... <title>...</title> ... </programme>
+  // 2. 查找节目 (Programmes)
+  // 策略：不遍历所有节目，直接搜索 `channel="CHANNEL_ID"`
   const programs = [];
+  const targetDateCompact = targetDateStr.replace(/-/g, ''); // 20231027
+  const channelAttr = `channel="${channelID}"`; // 搜索关键词
   
-  // 优化：只查找包含该频道ID的 programme 标签，提高正则效率
-  // 这一步正则比较重，但对于 EPG 这种结构通常没问题
-  // 格式: <programme start="20231027000000 +0800" stop="..." channel="CCTV1">
-  const progRegex = new RegExp(`<programme start="([^"]+)" stop="([^"]+)" channel="${escapeRegExp(channelID)}"[^>]*>[\\s\\S]*?<title[^>]*>([^<]+)<\\/title>(?:[\\s\\S]*?<desc[^>]*>([\\s\\S]*?)<\\/desc>)?`, 'g');
+  let pos = xml.indexOf(channelAttr);
+  
+  // 循环查找该频道的节目，直到找不到为止
+  while (pos !== -1) {
+    // 找到 channel="id" 后，我们需要找到整个 <programme> 标签的范围
+    // 1. 往前找 '<programme'
+    const startTagIndex = xml.lastIndexOf('<programme', pos);
+    // 2. 往后找 '</programme>'
+    const endTagIndex = xml.indexOf('</programme>', pos);
 
-  let pMatch;
-  while ((pMatch = progRegex.exec(xml)) !== null) {
-    const startRaw = pMatch[1]; // 20231027000000 +0800
-    const stopRaw = pMatch[2];
-    const title = pMatch[3];
-    const desc = pMatch[4] || "";
+    if (startTagIndex !== -1 && endTagIndex !== -1) {
+      // 提取这一条节目的完整 XML 字符串
+      const progStr = xml.substring(startTagIndex, endTagIndex + 12);
+      
+      // 3. 在这短短的一行字符串里提取时间
+      // 格式通常是 start="20231027..."
+      const startMatch = progStr.match(/start="([^"]+)"/);
+      const stopMatch = progStr.match(/stop="([^"]+)"/);
+      
+      if (startMatch && startMatch[1].startsWith(targetDateCompact)) {
+        // 只有日期匹配才提取标题
+        const titleMatch = progStr.match(/<title[^>]*>([^<]+)<\/title>/);
+        const descMatch = progStr.match(/<desc[^>]*>([\s\S]*?)<\/desc>/); // desc 可能有换行
 
-    // 检查日期是否匹配 (取前8位)
-    if (startRaw.startsWith(targetDateCompact)) {
-      programs.push({
-        start: formatTime(startRaw),
-        end: formatTime(stopRaw),
-        title: title,
-        desc: desc
-      });
+        programs.push({
+          start: formatTime(startMatch[1]),
+          end: stopMatch ? formatTime(stopMatch[1]) : "",
+          title: titleMatch ? titleMatch[1] : "无标题",
+          desc: descMatch ? descMatch[1] : ""
+        });
+      }
     }
+
+    // 继续查找下一个同频道的节目
+    pos = xml.indexOf(channelAttr, pos + 1);
   }
 
   return {
@@ -170,14 +168,8 @@ function parseAndFind(xml, targetChannelName, targetDateStr, originUrl) {
   };
 }
 
-// 辅助：转义正则中的特殊字符
-function escapeRegExp(string) {
-  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-// 辅助：提取时间 HH:mm
 function formatTime(raw) {
-  // raw 格式通常是 "20231027183200 +0800"
+  // raw: "20231027183200 +0800" -> "18:32"
   if (!raw || raw.length < 12) return "";
   return `${raw.substring(8, 10)}:${raw.substring(10, 12)}`;
 }
