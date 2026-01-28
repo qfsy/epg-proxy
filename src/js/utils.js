@@ -10,6 +10,7 @@ export function smartFind(xml, userChannelName, targetDateStr, originUrl) {
   let realDisplayName = "";
 
   // 正则匹配：查找频道定义
+  // 匹配 <channel id="..."> ... <display-name>...</display-name>
   const channelRegex = /<channel id="([^"]+)">[\s\S]*?<display-name[^>]*>([^<]+)<\/display-name>[\s\S]*?(?:<icon src="([^"]+)" \/>)?[\s\S]*?<\/channel>/g;
   
   let match;
@@ -19,6 +20,8 @@ export function smartFind(xml, userChannelName, targetDateStr, originUrl) {
     const iconInXml = match[3] || "";
     
     // 频道名归一化比较
+    // 此时 normalizeName("CCTV-1") === "CCTV1"
+    // normalizeName("CCTV 5+") === "CCTV5+" (保留加号，区分 CCTV5)
     if (normalizeName(nameInXml) === normalizedInput) {
       channelID = id;
       realDisplayName = nameInXml;
@@ -78,6 +81,8 @@ export function smartFind(xml, userChannelName, targetDateStr, originUrl) {
 export function normalizeName(name) {
   if (!name) return "";
   // 核心模糊匹配：转大写，移除空格、横线、下划线
+  // 注意：保留了 "+" 号，因此 "CCTV5" 和 "CCTV5+" 会被视为不同频道，满足精确性要求
+  // "CCTV-1" -> "CCTV1", "CCTV 1" -> "CCTV1"
   return name.trim().toUpperCase().replace(/[\s\-_]/g, '');
 }
 
@@ -87,7 +92,15 @@ export function formatTime(raw) {
 }
 
 export function isGzipContent(headers, urlStr) {
-  return urlStr.endsWith('.gz') || 
-         (headers.get('content-type') || '').includes('gzip') ||
-         (headers.get('content-encoding') || '').includes('gzip');
+  // 1. 如果 URL 以 .gz 结尾，认为是 Gzip 文件
+  if (urlStr.endsWith('.gz')) return true;
+
+  // 2. 如果 Content-Type 明确指示是 Gzip
+  const type = headers.get('content-type') || '';
+  if (type.includes('application/gzip') || type.includes('application/x-gzip')) return true;
+
+  // 3. 注意：不检测 Content-Encoding。
+  // 因为 Cloudflare Worker 的 fetch 会自动处理 Transport Layer 的解压。
+  // 如果源是 XML 但传输用了 gzip，fetch 拿到的 body 已经是解压后的文本，我们不应该再次解压。
+  return false;
 }
