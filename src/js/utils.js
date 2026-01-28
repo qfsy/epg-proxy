@@ -4,53 +4,83 @@
  */
 
 export function smartFind(xml, userChannelName, targetDateStr, originUrl, currentPath = '/epg/diyp') {
+  // 1. 获取频道信息（ID, Name, Icon）
+  // 采用 "精确优先 + 性能优先" 策略
+  const channelInfo = findChannelInfo(xml, userChannelName);
+
+  if (!channelInfo) {
+    return { programs: [], response: {} };
+  }
+
+  // 2. 提取节目单（复用逻辑）
+  return extractPrograms(xml, channelInfo, targetDateStr, originUrl, currentPath);
+}
+
+/**
+ * 核心查找逻辑：精确匹配优先 -> 模糊匹配兜底
+ */
+function findChannelInfo(xml, userChannelName) {
   const normalizedInput = normalizeName(userChannelName);
-  const upperInput = userChannelName.trim().toUpperCase(); // 用于精确匹配比较
+  const escapedName = userChannelName.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   
-  let channelID = "";
-  let icon = "";
-  let realDisplayName = "";
+  // --- 阶段 A: 极速精确匹配 (Fast Path) ---
+  try {
+    const exactRegex = new RegExp(`<display-name[^>]*>\\s*${escapedName}\\s*<\\/display-name>`, 'i');
+    const exactMatch = xml.match(exactRegex);
 
-  // 正则匹配：查找频道定义
-  // 匹配 <channel id="..."> ... <display-name>...</display-name>
-  const channelRegex = /<channel id="([^"]+)">[\s\S]*?<display-name[^>]*>([^<]+)<\/display-name>[\s\S]*?(?:<icon src="([^"]+)" \/>)?[\s\S]*?<\/channel>/g;
-  
-  let match;
-  let bestMatch = null;
+    if (exactMatch) {
+      const nameIndex = exactMatch.index;
+      const channelStartIndex = xml.lastIndexOf('<channel', nameIndex);
+      
+      if (channelStartIndex !== -1) {
+        const channelEndIndex = xml.indexOf('</channel>', nameIndex);
+        if (channelEndIndex !== -1) {
+          const channelBlock = xml.substring(channelStartIndex, channelEndIndex + 10);
+          const idMatch = channelBlock.match(/id="([^"]+)"/);
+          const iconMatch = channelBlock.match(/<icon src="([^"]+)"/);
 
-  // 1. 遍历所有频道，寻找最佳匹配 (精确匹配 > 模糊匹配)
-  while ((match = channelRegex.exec(xml)) !== null) {
-    const id = match[1];
-    const nameInXml = match[2];
-    const iconInXml = match[3] || "";
-    
-    // 检查是否为精确匹配 (忽略大小写，但字符完全一致)
-    // 例如：输入 "CCTV1"，XML中有 "CCTV1" -> 命中精确匹配
-    if (nameInXml.trim().toUpperCase() === upperInput) {
-      bestMatch = { id, name: nameInXml, icon: iconInXml };
-      break; // 找到最完美的匹配，直接结束循环
+          if (idMatch) {
+            return {
+              id: idMatch[1],
+              name: userChannelName.trim(),
+              icon: iconMatch ? iconMatch[1] : ""
+            };
+          }
+        }
+      }
     }
+  } catch (e) {
+    console.error("Fast path error:", e);
+  }
+
+  // --- 阶段 B: 全量遍历模糊匹配 (Slow Path) ---
+  const channelRegex = /<channel id="([^"]+)">[\s\S]*?<display-name[^>]*>([^<]+)<\/display-name>[\s\S]*?(?:<icon src="([^"]+)" \/>)?[\s\S]*?<\/channel>/g;
+  let match;
+
+  while ((match = channelRegex.exec(xml)) !== null) {
+    const nameInXml = match[2];
     
-    // 检查是否为模糊匹配
-    // 例如：输入 "CCTV1"，XML中有 "CCTV-1" -> 命中模糊匹配
-    // 逻辑：如果还没有找到任何匹配，就先暂存这个模糊匹配结果；继续往后找，万一后面有精确匹配的呢？
-    if (!bestMatch && normalizeName(nameInXml) === normalizedInput) {
-      bestMatch = { id, name: nameInXml, icon: iconInXml };
+    if (normalizeName(nameInXml) === normalizedInput) {
+      return {
+        id: match[1],
+        name: nameInXml,
+        icon: match[3] || ""
+      };
     }
   }
 
-  // 如果遍历完连模糊匹配都没找到，返回空
-  if (!bestMatch) return { programs: [], response: {} };
+  return null;
+}
 
-  channelID = bestMatch.id;
-  realDisplayName = bestMatch.name;
-  icon = bestMatch.icon;
-
+/**
+ * 节目单提取逻辑
+ */
+function extractPrograms(xml, channelInfo, targetDateStr, originUrl, currentPath) {
   const programs = [];
   const targetDateCompact = targetDateStr.replace(/-/g, '');
-  const channelAttr = `channel="${channelID}"`;
+  const channelAttr = `channel="${channelInfo.id}"`;
   
-  // 使用 indexOf 快速定位节目单，性能优化版
+  // 使用 indexOf 快速定位节目单
   let pos = xml.indexOf(channelAttr);
   while (pos !== -1) {
     const startTagIndex = xml.lastIndexOf('<programme', pos);
@@ -63,14 +93,15 @@ export function smartFind(xml, userChannelName, targetDateStr, originUrl, curren
       // 匹配日期
       if (startMatch && startMatch[1].startsWith(targetDateCompact)) {
         const stopMatch = progStr.match(/stop="([^"]+)"/);
-        const titleMatch = progStr.match(/<title[^>]*>([^<]+)<\/title>/);
-        const descMatch = progStr.match(/<desc[^>]*>([\s\S]*?)<\/desc>/); 
+        const titleMatch = progStr.match(/<title[^>]*>([\s\S]*?)<\/title>/); // 优化正则以支持换行
+        const descMatch = progStr.match(/<desc[^>]*>([\s\S]*?)<\/desc>/); // 确保捕获 desc
 
         programs.push({
           start: formatTime(startMatch[1]),
           end: stopMatch ? formatTime(stopMatch[1]) : "",
-          title: titleMatch ? titleMatch[1] : "节目",
-          desc: descMatch ? descMatch[1] : ""
+          title: titleMatch ? cleanContent(titleMatch[1]) : "节目",
+          // 关键修复：保留 desc 并清洗 CDATA
+          desc: descMatch ? cleanContent(descMatch[1]) : "" 
         });
       }
     }
@@ -82,14 +113,23 @@ export function smartFind(xml, userChannelName, targetDateStr, originUrl, curren
     response: {
       code: 200,
       message: "请求成功",
-      channel_id: channelID,
-      channel_name: realDisplayName,
+      channel_id: channelInfo.id,
+      channel_name: channelInfo.name,
       date: targetDateStr,
-      url: `${originUrl}${currentPath}`, // 修复：使用动态路径
-      icon: icon,
+      url: `${originUrl}${currentPath}`,
+      icon: channelInfo.icon,
       epg_data: programs
     }
   };
+}
+
+/**
+ * 清洗 XML 内容：去除 CDATA 标签，去除首尾空格
+ * 很多 EPG 的 desc 包含 <![CDATA[...]]>，如果不去除，播放器可能不显示
+ */
+function cleanContent(str) {
+  if (!str) return "";
+  return str.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/gi, '$1').trim();
 }
 
 export function normalizeName(name) {
