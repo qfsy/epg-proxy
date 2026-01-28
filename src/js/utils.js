@@ -5,6 +5,8 @@
 
 export function smartFind(xml, userChannelName, targetDateStr, originUrl, currentPath = '/epg/diyp') {
   const normalizedInput = normalizeName(userChannelName);
+  const upperInput = userChannelName.trim().toUpperCase(); // 用于精确匹配比较
+  
   let channelID = "";
   let icon = "";
   let realDisplayName = "";
@@ -14,23 +16,35 @@ export function smartFind(xml, userChannelName, targetDateStr, originUrl, curren
   const channelRegex = /<channel id="([^"]+)">[\s\S]*?<display-name[^>]*>([^<]+)<\/display-name>[\s\S]*?(?:<icon src="([^"]+)" \/>)?[\s\S]*?<\/channel>/g;
   
   let match;
+  let bestMatch = null;
+
+  // 1. 遍历所有频道，寻找最佳匹配 (精确匹配 > 模糊匹配)
   while ((match = channelRegex.exec(xml)) !== null) {
     const id = match[1];
     const nameInXml = match[2];
     const iconInXml = match[3] || "";
     
-    // 频道名归一化比较
-    // 此时 normalizeName("CCTV-1") === "CCTV1"
-    // normalizeName("CCTV 5+") === "CCTV5+" (保留加号，区分 CCTV5)
-    if (normalizeName(nameInXml) === normalizedInput) {
-      channelID = id;
-      realDisplayName = nameInXml;
-      icon = iconInXml;
-      break; 
+    // 检查是否为精确匹配 (忽略大小写，但字符完全一致)
+    // 例如：输入 "CCTV1"，XML中有 "CCTV1" -> 命中精确匹配
+    if (nameInXml.trim().toUpperCase() === upperInput) {
+      bestMatch = { id, name: nameInXml, icon: iconInXml };
+      break; // 找到最完美的匹配，直接结束循环
+    }
+    
+    // 检查是否为模糊匹配
+    // 例如：输入 "CCTV1"，XML中有 "CCTV-1" -> 命中模糊匹配
+    // 逻辑：如果还没有找到任何匹配，就先暂存这个模糊匹配结果；继续往后找，万一后面有精确匹配的呢？
+    if (!bestMatch && normalizeName(nameInXml) === normalizedInput) {
+      bestMatch = { id, name: nameInXml, icon: iconInXml };
     }
   }
 
-  if (!channelID) return { programs: [], response: {} };
+  // 如果遍历完连模糊匹配都没找到，返回空
+  if (!bestMatch) return { programs: [], response: {} };
+
+  channelID = bestMatch.id;
+  realDisplayName = bestMatch.name;
+  icon = bestMatch.icon;
 
   const programs = [];
   const targetDateCompact = targetDateStr.replace(/-/g, '');
