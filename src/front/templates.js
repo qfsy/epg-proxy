@@ -46,10 +46,33 @@ const COMMON_STYLE = `
   h1 .icon { font-size: 2rem; }
   p { color: var(--text-muted); margin-bottom: 1.5rem; }
   .card { border: 1px solid var(--border); border-radius: 8px; padding: 1.5rem; margin-bottom: 1.5rem; background: var(--bg); }
-  .card h3 { margin-top: 0; font-size: 1.1rem; color: var(--text); }
+  .card h3 { margin-top: 0; font-size: 1.1rem; color: var(--text); margin-bottom: 0.5rem; }
+  .card p.desc { font-size: 0.9rem; margin-bottom: 1.2rem; }
+  
   .tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.8rem; font-weight: 600; background: var(--primary); color: white; margin-left: 8px; }
   .tag.optional { background: var(--text-muted); }
   
+  /* === 新增：子标题样式 === */
+  .sub-label {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--text);
+      margin-top: 1.2rem;
+      margin-bottom: 0.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+  }
+  .sub-label:first-of-type { margin-top: 0; }
+  .badge {
+      font-size: 0.75rem;
+      font-weight: normal;
+      background: var(--border);
+      color: var(--text-muted);
+      padding: 2px 6px;
+      border-radius: 4px;
+  }
+
   /* === 核心交互样式 === */
   .code-box { 
     position: relative; /* 关键：作为绝对定位子元素的参考基准 */
@@ -220,8 +243,13 @@ export function getUsageHTML(baseUrl) {
   const dd = String(beijingTime.getDate()).padStart(2, '0');
   const dateStr = `${yyyy}-${mm}-${dd}`;
   
-  const diypUrl = `${baseUrl}epg/diyp?ch=CCTV1&date=${dateStr}`;
-  const superLiveUrl = `${baseUrl}epg/epginfo?ch=CCTV1&date=${dateStr}`;
+  // 构造地址
+  const diypBase = `${baseUrl}epg/diyp`;
+  const diypExample = `${diypBase}?ch=CCTV1&date=${dateStr}`;
+  
+  const superLiveBase = `${baseUrl}epg/epginfo`;
+  const superLiveExample = `${superLiveBase}?ch=CCTV1&date=${dateStr}`;
+  
   const xmlUrl = `${baseUrl}epg/epg.xml`;
   const gzUrl = `${baseUrl}epg/epg.xml.gz`;
 
@@ -241,25 +269,53 @@ export function getUsageHTML(baseUrl) {
         
         <div class="card">
             <h3>1. DIYP 接口 (智能聚合)</h3>
-            <p>适用于 DIYP影音、百川 等播放器。</p>
-            <div class="code-box" onclick="copyText(this, '${diypUrl}')">
-                <code>${diypUrl}</code>
+            <p class="desc">适用于 DIYP影音、百川、TVBox 等播放器。</p>
+            
+            <div class="sub-label">
+                <span>接口地址</span>
+                <span class="badge">配置用</span>
+            </div>
+            <div class="code-box" onclick="copyText(this, '${diypBase}')">
+                <code>${diypBase}</code>
+                <div class="status">✅ 已复制</div>
+            </div>
+
+            <div class="sub-label">
+                <span>测试示例</span>
+                <span class="badge">浏览器访问</span>
+            </div>
+            <div class="code-box" onclick="copyText(this, '${diypExample}')">
+                <code>${diypExample}</code>
                 <div class="status">✅ 已复制</div>
             </div>
         </div>
 
         <div class="card">
             <h3>2. 超级直播接口 (epginfo)</h3>
-            <p>适用于 超级直播、友窝 等，兼容 <code>ch/channel/id</code> 参数。</p>
-            <div class="code-box" onclick="copyText(this, '${superLiveUrl}')">
-                <code>${superLiveUrl}</code>
+            <p class="desc">适用于 超级直播、友窝 等，兼容 <code>ch/channel/id</code> 参数。</p>
+            
+            <div class="sub-label">
+                <span>接口地址</span>
+                <span class="badge">配置用</span>
+            </div>
+            <div class="code-box" onclick="copyText(this, '${superLiveBase}')">
+                <code>${superLiveBase}</code>
+                <div class="status">✅ 已复制</div>
+            </div>
+
+            <div class="sub-label">
+                <span>测试示例</span>
+                <span class="badge">浏览器访问</span>
+            </div>
+            <div class="code-box" onclick="copyText(this, '${superLiveExample}')">
+                <code>${superLiveExample}</code>
                 <div class="status">✅ 已复制</div>
             </div>
         </div>
         
         <div class="card">
             <h3>3. XML 下载 (仅主源)</h3>
-            <p>标准 XML 格式，适合不支持接口查询的播放器。</p>
+            <p class="desc">标准 XML 格式，适合不支持接口查询的播放器。</p>
             <div class="code-box" onclick="copyText(this, '${xmlUrl}')">
                 <code>${xmlUrl}</code>
                 <div class="status">✅ 已复制</div>
@@ -268,7 +324,7 @@ export function getUsageHTML(baseUrl) {
         
         <div class="card">
             <h3>4. GZ 下载 (仅主源)</h3>
-            <p>Gzip 压缩格式，推荐 TiviMate 使用，节省带宽。</p>
+            <p class="desc">Gzip 压缩格式，推荐 TiviMate 使用，节省带宽。</p>
             <div class="code-box" onclick="copyText(this, '${gzUrl}')">
                 <code>${gzUrl}</code>
                 <div class="status">✅ 已复制</div>
