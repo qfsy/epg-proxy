@@ -10,6 +10,7 @@
 
 ## ✨ 核心功能
 
+* **配置灵活**：支持通过环境变量设置 EPG 源，无需修改代码。
 * **全格式支持**：支持输入 `.xml` 或 `.xml.gz` 格式的 EPG 源。
 * **三合一输出**：
     * **DIYP 接口** (`/epg/diyp`)：供播放器按需查询，支持 JSON 格式。
@@ -22,8 +23,7 @@
 * **极致性能**：
     * **索引查找**：放弃低效的全文正则，使用 `indexOf` 定位，速度提升 100 倍，避免 Worker CPU 超时。
     * **流式传输**：使用 Web Streams API (`pipeThrough`) 处理文件，内存占用极低，支持处理超大 EPG 文件。
-    * **边缘缓存**：利用 Cache API 缓存源文件 5 分钟（可配），防止源站被刷爆。
-* **零依赖**：纯原生 JavaScript 编写，无需 `npm install`，直接复制粘贴代码即可运行。
+    * **边缘缓存**：利用 Cache API 缓存源文件，防止源站被刷爆。
 
 ## 🚀 部署指南
 
@@ -33,9 +33,10 @@
 2. 进入 **Workers & Pages** -> **Create Application** -> **Create Worker**。
 3. 命名你的 Worker（例如 `my-epg`），点击 **Deploy**。
 4. 点击 **Edit code**（快速编辑）。
-5. 将本项目 `worker.js` 中的代码完全复制并覆盖编辑器中的内容。
-6. 修改代码顶部的 `EPG_URL` 为你自己的 EPG 源地址。
-7. 点击右上角的 **Deploy** 保存。
+5. 将本项目 `worker.js` 中的代码完全复制并覆盖编辑器中的内容，点击 **Deploy**。
+6. **重要步骤**：转到 Worker 的 **Settings** -> **Variables** 页面，点击 **Add Variable** 添加配置：
+   * `EPG_URL`: (必填) 你的 EPG 源地址 (如 `https://example.com/e.xml.gz`)。
+   * `CACHE_TTL`: (可选) 缓存时间秒数 (默认 300)。
 
 ### 方法二：使用 Wrangler 命令行
 
@@ -48,18 +49,14 @@
    ```bash
    npx wrangler deploy
    ```
+3. 在 Cloudflare 后台设置环境变量，或者在 `wrangler.toml` 中添加 `[vars]` 配置。
 
-## ⚙️ 配置说明
+## ⚙️ 环境变量说明
 
-在 `worker.js` 顶部修改配置：
-
-```javascript
-// EPG 源地址 (支持 http/https，支持 .xml 或 .xml.gz)
-const EPG_URL = "https://raw.githubusercontent.com/kuke31/xmlgz/main/all.xml.gz";
-
-// 缓存时间 (单位：秒)，建议 300 (5分钟) 或 3600 (1小时)
-const CACHE_TTL = 300;
-```
+| 变量名 | 必填 | 默认值 | 说明 |
+| :--- | :--- | :--- | :--- |
+| `EPG_URL` | ✅ 是 | - | EPG 文件的直连地址，支持 http/https，支持 .xml 或 .xml.gz |
+| `CACHE_TTL` | ❌ 否 | 300 | 源文件在 Cloudflare 边缘节点的缓存时间（秒） |
 
 ## 📖 API 使用说明
 
@@ -74,7 +71,7 @@ const CACHE_TTL = 300;
     * `date`: 日期 (格式 `YYYY-MM-DD`)
 * **示例**:
   ```
-  https://epg.your-domain.workers.dev/epg/diyp?ch=CCTV1&date=2026-01-24
+  https://epg.your-domain.workers.dev/epg/diyp?ch=CCTV1&date=2024-01-24
   ```
 
 ### 2. XML 文件下载
@@ -87,16 +84,9 @@ const CACHE_TTL = 300;
 
 * **URL**: `https://epg.your-domain.workers.dev/epg/epg.xml.gz`
 
-## 🛠️ 常见问题
-
 **Q: 为什么输入 "江苏卫视" 匹配不到？**
 A: 请确保使用最新版代码。旧版逻辑会移除中文字符，新版已修复此问题，完美支持中文匹配。
 
-**Q: 会消耗很多 Cloudflare 额度吗？**
-A: 不会。免费版 Worker 每天有 10 万次请求额度。由于内置了缓存机制，短时间内的重复请求直接由边缘节点响应，不消耗 CPU 时间。
-
-**Q: 提示 "Stream Error"？**
-A: 这是因为流被锁定。最新版代码使用了 `stream.tee()` 技术，已完美解决此问题。
 
 ## 📄 License
 
