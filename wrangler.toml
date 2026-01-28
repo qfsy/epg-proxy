@@ -1,5 +1,5 @@
 name = "cf-worker-epg"
-main = "worker.js"
+main = "src/js/index.js"
 compatibility_date = "2024-01-29"
 
 # 观察性配置 (可选)

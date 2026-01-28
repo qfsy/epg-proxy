@@ -3,8 +3,9 @@
  * * 入口文件：负责路由分发与环境检查
  */
 
-import { handleDiyp, handleDownload } from './src/js/logic.js';
-import { getSetupGuideHTML, getUsageHTML } from './src/front/templates.js';
+// 路径调整：logic.js 在同级目录，templates.js 在上级目录的 front 文件夹中
+import { handleDiyp, handleDownload } from './logic.js';
+import { getSetupGuideHTML, getUsageHTML } from '../front/templates.js';
 
 export default {
   async fetch(request, env, ctx) {

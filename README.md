@@ -51,7 +51,11 @@
 
 1. 登录 Cloudflare Dashboard。
 2. 创建一个 Worker。
-3. 复制 `worker.js` 以及 `src` 目录下的所有文件内容到在线编辑器中对应的文件里。
+3. **创建文件结构**：
+   * `src/js/index.js` (入口文件)
+   * `src/js/logic.js`
+   * `src/js/utils.js`
+   * `src/front/templates.js`
 4. 在 **Settings** -> **Variables** 中添加环境变量。
 
 ### 方法三：使用 Wrangler 命令行
