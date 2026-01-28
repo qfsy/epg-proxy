@@ -71,6 +71,8 @@ const COMMON_STYLE = `
     border-color: var(--success) !important;
     background-color: var(--success-bg) !important;
   }
+  
+  /* 状态变化时针对内部 code 的样式覆盖 */
   .code-box.copied code {
     color: var(--success);
     font-weight: bold;
@@ -79,15 +81,24 @@ const COMMON_STYLE = `
     align-items: center;
   }
 
+  /* 全局通用 code 样式 (修复换行问题) */
   code { 
-    display: block;
-    padding: 0.8rem 1rem; 
-    background: transparent;
     font-family: 'Menlo', 'Monaco', 'Courier New', monospace; 
     font-size: 0.9em; 
-    word-break: break-all; 
     color: var(--primary); 
-    user-select: none; 
+    background: var(--code-bg); /* 给行内代码加个背景 */
+    padding: 0.2rem 0.4rem;     /* 行内小间距 */
+    border-radius: 4px;
+  }
+
+  /* URL 复制框内的 code 特有样式 (恢复块级显示) */
+  .code-box code {
+    display: block;          /* 独占一行 */
+    background: transparent; /* 背景由 box 接管 */
+    padding: 0.8rem 1rem;    /* 大间距 */
+    word-break: break-all;   /* URL 强制断行 */
+    user-select: none;       /* 防止点击时选中文字 */
+    border-radius: 0;
   }
 
   .code-box::after {
