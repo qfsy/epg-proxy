@@ -73,6 +73,7 @@ async function getSourceStream(ctx, env) {
   responseToCache.headers.set("Cache-Control", `public, max-age=${cacheTtl}`);
   ctx.waitUntil(cache.put(cacheKey, responseToCache));
 
+  // 这里同时检查 headers 和 URL 后缀，确保兼容 xml 和 xml.gz
   return {
     stream: streamForUse,
     headers: originRes.headers,
@@ -99,11 +100,13 @@ async function handleDownload(ctx, targetFormat, env) {
 
   if (targetFormat === 'xml') {
     contentType = "application/xml; charset=utf-8";
+    // 如果源是 Gzip 但请求 XML，则解压
     if (source.isGzip) {
       finalStream = finalStream.pipeThrough(new DecompressionStream('gzip'));
     }
   } else if (targetFormat === 'gz') {
     contentType = "application/gzip";
+    // 如果源不是 Gzip 但请求 GZ，则压缩
     if (!source.isGzip) {
       finalStream = finalStream.pipeThrough(new CompressionStream('gzip'));
     }
@@ -135,11 +138,13 @@ async function handleDiyp(request, url, ctx, env) {
   const source = await getSourceStream(ctx, env);
   let stream = source.stream;
 
+  // DIYP 接口需要文本内容，如果是 Gzip 则必须解压
   if (source.isGzip) {
     stream = stream.pipeThrough(new DecompressionStream('gzip'));
   }
 
   const xmlText = await new Response(stream).text();
+  // 执行智能查找，包含模糊匹配逻辑
   const result = smartFind(xmlText, ch, date, url.origin);
 
   if (result.programs.length === 0) {
@@ -166,11 +171,14 @@ async function handleDiyp(request, url, ctx, env) {
 // =========================================================
 
 function smartFind(xml, userChannelName, targetDateStr, originUrl) {
+  // 核心模糊匹配逻辑：归一化用户输入
+  // 移除空格、横线、下划线，转大写。例如 "CCTV-1" -> "CCTV1"
   const normalizedInput = normalizeName(userChannelName);
   let channelID = "";
   let icon = "";
   let realDisplayName = "";
 
+  // 改进的正则匹配，提取频道信息
   const channelRegex = /<channel id="([^"]+)">[\s\S]*?<display-name[^>]*>([^<]+)<\/display-name>[\s\S]*?(?:<icon src="([^"]+)" \/>)?[\s\S]*?<\/channel>/g;
   
   let match;
@@ -179,6 +187,9 @@ function smartFind(xml, userChannelName, targetDateStr, originUrl) {
     const nameInXml = match[2];
     const iconInXml = match[3] || "";
     
+    // 对 XML 中的频道名也进行同样的归一化比较
+    // 这样 "CCTV 1" (XML) 和 "CCTV-1" (Input) 都会变成 "CCTV1" 从而匹配成功
+    // 同时保留了精确性，因为 "CCTV5" 和 "CCTV5+" 不会被错误归一化成同一个 (normalizeName 不移除 + 号)
     if (normalizeName(nameInXml) === normalizedInput) {
       channelID = id;
       realDisplayName = nameInXml;
@@ -193,6 +204,7 @@ function smartFind(xml, userChannelName, targetDateStr, originUrl) {
   const targetDateCompact = targetDateStr.replace(/-/g, '');
   const channelAttr = `channel="${channelID}"`;
   
+  // 使用 indexOf 快速定位，避免大文件正则性能问题
   let pos = xml.indexOf(channelAttr);
   while (pos !== -1) {
     const startTagIndex = xml.lastIndexOf('<programme', pos);
@@ -202,6 +214,7 @@ function smartFind(xml, userChannelName, targetDateStr, originUrl) {
       const progStr = xml.substring(startTagIndex, endTagIndex + 12);
       const startMatch = progStr.match(/start="([^"]+)"/);
       
+      // 匹配日期
       if (startMatch && startMatch[1].startsWith(targetDateCompact)) {
         const stopMatch = progStr.match(/stop="([^"]+)"/);
         const titleMatch = progStr.match(/<title[^>]*>([^<]+)<\/title>/);
@@ -215,6 +228,7 @@ function smartFind(xml, userChannelName, targetDateStr, originUrl) {
         });
       }
     }
+    // 继续查找下一个节目
     pos = xml.indexOf(channelAttr, pos + 1);
   }
 
@@ -235,6 +249,9 @@ function smartFind(xml, userChannelName, targetDateStr, originUrl) {
 
 function normalizeName(name) {
   if (!name) return "";
+  // 模糊匹配核心：转大写，移除所有空格、横线、下划线
+  // 这将把 "CCTV-1", "CCTV 1", "cctv-1" 统一为 "CCTV1"
+  // 注意："+" 号不会被移除，保证了 CCTV5+ 的精确区分
   return name.trim().toUpperCase().replace(/[\s\-_]/g, '');
 }
 
@@ -288,6 +305,16 @@ function getSetupGuideHTML() {
 
 // 首页 HTML：当配置正确但未访问具体路径时显示
 function getUsageHTML(baseUrl) {
+  // 获取当前北京时间 (UTC+8)
+  const now = new Date();
+  const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+  const beijingTime = new Date(utc + (3600000 * 8));
+  
+  const yyyy = beijingTime.getFullYear();
+  const mm = String(beijingTime.getMonth() + 1).padStart(2, '0');
+  const dd = String(beijingTime.getDate()).padStart(2, '0');
+  const dateStr = `${yyyy}-${mm}-${dd}`;
+
   return `
 <!DOCTYPE html>
 <html lang="zh-CN">
@@ -307,7 +334,7 @@ function getUsageHTML(baseUrl) {
         <p>配置已加载，服务就绪。可用接口如下：</p>
         
         <h3>1. DIYP 接口 (JSON)</h3>
-        <code>${baseUrl}epg/diyp?ch=CCTV1&date=2024-01-24</code>
+        <code>${baseUrl}epg/diyp?ch=CCTV1&date=${dateStr}</code>
         
         <h3>2. XML 下载 (自动解压)</h3>
         <code>${baseUrl}epg/epg.xml</code>
