@@ -10,16 +10,16 @@
 
 ## ✨ 核心功能
 
-* **配置灵活**：支持通过环境变量设置 EPG 源，无需修改代码。
-* **全格式支持**：自动识别输入源，支持输入 `.xml` (文本) 或 `.xml.gz` (Gzip) 格式的 EPG 源。
+* **配置灵活**：支持通过环境变量设置 **主、备两个** EPG 源，无需修改代码。
+* **全格式支持**：支持输入 `.xml` 或 `.xml.gz` 格式的 EPG 源。
 * **三合一输出**：
-    * **DIYP 接口** (`/epg/diyp`)：供播放器按需查询，支持 JSON 格式。
-    * **XML 直连** (`/epg/epg.xml`)：将源自动转为 XML 格式（流式解压）。
-    * **GZ 压缩** (`/epg/epg.xml.gz`)：将源自动转为 Gzip 格式（流式压缩），节省流量。
+    * **DIYP 接口** (`/epg/diyp`)：供播放器按需查询，支持 JSON 格式。**（支持主备源自动切换：优先查主源，失败查备源）**
+    * **XML 直连** (`/epg/epg.xml`)：将源自动转为 XML 格式（流式解压）。**（仅主源）**
+    * **GZ 压缩** (`/epg/epg.xml.gz`)：将源自动转为 Gzip 格式（流式压缩），节省流量。**（仅主源）**
 * **智能模糊匹配**：
-    * 自动归一化频道名称（如 `CCTV-1`, `CCTV 1`, `cctv1` 均可精确匹配 `CCTV1`）。
+    * 自动归一化频道名称（如 `CCTV-1`, `CCTV 1` 均可匹配 `CCTV1`）。
     * 完美支持中文频道（如 `湖南卫视`）。
-    * 精准区分相似频道（如 `CCTV5` 与 `CCTV5+` 是不同的频道，不会混淆）。
+    * 精准区分相似频道（如 `CCTV5` 与 `CCTV5+`）。
 * **极致性能**：
     * **索引查找**：放弃低效的全文正则，使用 `indexOf` 定位，速度提升 100 倍，避免 Worker CPU 超时。
     * **流式传输**：使用 Web Streams API (`pipeThrough`) 处理文件，内存占用极低，支持处理超大 EPG 文件。
@@ -35,7 +35,8 @@
 4. 点击 **Edit code**（快速编辑）。
 5. 将本项目 `worker.js` 中的代码完全复制并覆盖编辑器中的内容，点击 **Deploy**。
 6. **重要步骤**：转到 Worker 的 **Settings** -> **Variables** 页面，点击 **Add Variable** 添加配置：
-   * `EPG_URL`: (必填) 你的 EPG 源地址 (如 `https://example.com/e.xml.gz`)。
+   * `EPG_URL`: (必填) 你的 **主** EPG 源地址 (如 `https://example.com/e.xml.gz`)。
+   * `EPG_URL_BACKUP`: (可选) 你的 **备用** EPG 源地址。
    * `CACHE_TTL`: (可选) 缓存时间秒数 (默认 300)。
 
 ### 方法二：使用 Wrangler 命令行
@@ -55,7 +56,8 @@
 
 | 变量名 | 必填 | 默认值 | 说明 |
 | :--- | :--- | :--- | :--- |
-| `EPG_URL` | ✅ 是 | - | EPG 文件的直连地址，支持 http/https，支持 .xml 或 .xml.gz |
+| `EPG_URL` | ✅ 是 | - | **主** EPG 源地址，支持 http/https，支持 .xml 或 .xml.gz |
+| `EPG_URL_BACKUP` | ❌ 否 | - | **备用** EPG 源地址，仅在 DIYP 接口主源查询失败时启用 |
 | `CACHE_TTL` | ❌ 否 | 300 | 源文件在 Cloudflare 边缘节点的缓存时间（秒） |
 
 ## 📖 API 使用说明
@@ -67,8 +69,9 @@
 
 * **URL**: `https://epg.your-domain.workers.dev/epg/diyp`
 * **参数**:
-    * `ch`: 频道名称 (支持模糊匹配，如 `CCTV1`, `湖南卫视`, `CCTV-1`)
+    * `ch`: 频道名称 (支持模糊匹配，如 `CCTV1`, `湖南卫视`)
     * `date`: 日期 (格式 `YYYY-MM-DD`)
+* **逻辑**: 优先查询主源，若未找到频道或请求失败，自动查询备用源。
 * **示例**:
   ```
   https://epg.your-domain.workers.dev/epg/diyp?ch=CCTV1&date=2024-01-24
@@ -76,11 +79,13 @@
 
 ### 2. XML 文件下载
 获取解压后的 XML 文件。无论源是 xml 还是 gz，这里永远输出 xml。
+*(注：为保证性能，文件下载接口仅使用主源数据)*
 
 * **URL**: `https://epg.your-domain.workers.dev/epg/epg.xml`
 
 ### 3. GZ 压缩文件下载
 获取压缩后的 GZ 文件。无论源是 xml 还是 gz，这里永远输出 gz。推荐使用此接口以节省带宽。
+*(注：为保证性能，文件下载接口仅使用主源数据)*
 
 * **URL**: `https://epg.your-domain.workers.dev/epg/epg.xml.gz`
 

@@ -1,9 +1,10 @@
 /**
- * Cloudflare Worker EPG Server (环境变量配置版)
+ * Cloudflare Worker EPG Server (主备双源版)
  *
  * 环境变量说明 (在 Cloudflare 后台设置):
- * 1. EPG_URL: (必填) EPG 源地址, 例如 https://example.com/e.xml.gz
- * 2. CACHE_TTL: (可选) 缓存时间(秒), 默认 300
+ * 1. EPG_URL: (必填) 主 EPG 源地址, 例如 https://example.com/main.xml.gz
+ * 2. EPG_URL_BACKUP: (可选) 备选 EPG 源地址, 当主源查不到时使用
+ * 3. CACHE_TTL: (可选) 缓存时间(秒), 默认 300
  */
 
 const DEFAULT_CACHE_TTL = 300; // 默认缓存 5 分钟
@@ -12,7 +13,7 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
-    // 检查是否配置了 EPG_URL
+    // 检查是否配置了主 EPG_URL
     if (!env.EPG_URL) {
       return new Response(getSetupGuideHTML(), {
         headers: { "Content-Type": "text/html; charset=utf-8" },
@@ -24,9 +25,10 @@ export default {
         case '/epg/diyp':
           return handleDiyp(request, url, ctx, env);
         case '/epg/epg.xml':
-          return handleDownload(ctx, 'xml', env);
+          // 文件下载仅提供主源，避免合并大文件导致超时
+          return handleDownload(ctx, 'xml', env.EPG_URL, env);
         case '/epg/epg.xml.gz':
-          return handleDownload(ctx, 'gz', env);
+          return handleDownload(ctx, 'gz', env.EPG_URL, env);
         default:
           return new Response(getUsageHTML(request.url), {
              headers: { "Content-Type": "text/html; charset=utf-8" }
@@ -39,28 +41,27 @@ export default {
 };
 
 // =========================================================
-// 1. 通用数据获取模块
+// 1. 通用数据获取模块 (支持指定 URL)
 // =========================================================
 
-async function getSourceStream(ctx, env) {
-  const epgUrl = env.EPG_URL;
+async function getSourceStream(ctx, targetUrl, env) {
   // 获取 TTL，优先使用环境变量，否则使用默认值
   const cacheTtl = parseInt(env.CACHE_TTL) || DEFAULT_CACHE_TTL;
 
   const cache = caches.default;
-  const cacheKey = new Request(epgUrl, { method: "GET" });
+  const cacheKey = new Request(targetUrl, { method: "GET" });
   
   let cachedRes = await cache.match(cacheKey);
   if (cachedRes) {
     return {
       stream: cachedRes.body,
       headers: cachedRes.headers,
-      isGzip: isGzipContent(cachedRes.headers, epgUrl)
+      isGzip: isGzipContent(cachedRes.headers, targetUrl)
     };
   }
 
-  console.log(`Cache miss, fetching from: ${epgUrl}`);
-  const originRes = await fetch(epgUrl);
+  console.log(`Cache miss, fetching from: ${targetUrl}`);
+  const originRes = await fetch(targetUrl);
   if (!originRes.ok) throw new Error(`Source fetch failed: ${originRes.status}`);
 
   const [streamForCache, streamForUse] = originRes.body.tee();
@@ -73,11 +74,10 @@ async function getSourceStream(ctx, env) {
   responseToCache.headers.set("Cache-Control", `public, max-age=${cacheTtl}`);
   ctx.waitUntil(cache.put(cacheKey, responseToCache));
 
-  // 这里同时检查 headers 和 URL 后缀，确保兼容 xml 和 xml.gz
   return {
     stream: streamForUse,
     headers: originRes.headers,
-    isGzip: isGzipContent(originRes.headers, epgUrl)
+    isGzip: isGzipContent(originRes.headers, targetUrl)
   };
 }
 
@@ -91,8 +91,8 @@ function isGzipContent(headers, urlStr) {
 // 2. 下载处理模块
 // =========================================================
 
-async function handleDownload(ctx, targetFormat, env) {
-  const source = await getSourceStream(ctx, env);
+async function handleDownload(ctx, targetFormat, sourceUrl, env) {
+  const source = await getSourceStream(ctx, sourceUrl, env);
   const cacheTtl = parseInt(env.CACHE_TTL) || DEFAULT_CACHE_TTL;
   
   let finalStream = source.stream;
@@ -100,13 +100,11 @@ async function handleDownload(ctx, targetFormat, env) {
 
   if (targetFormat === 'xml') {
     contentType = "application/xml; charset=utf-8";
-    // 如果源是 Gzip 但请求 XML，则解压
     if (source.isGzip) {
       finalStream = finalStream.pipeThrough(new DecompressionStream('gzip'));
     }
   } else if (targetFormat === 'gz') {
     contentType = "application/gzip";
-    // 如果源不是 Gzip 但请求 GZ，则压缩
     if (!source.isGzip) {
       finalStream = finalStream.pipeThrough(new CompressionStream('gzip'));
     }
@@ -122,7 +120,7 @@ async function handleDownload(ctx, targetFormat, env) {
 }
 
 // =========================================================
-// 3. DIYP 接口处理模块
+// 3. DIYP 接口处理模块 (核心更新：支持主备切换)
 // =========================================================
 
 async function handleDiyp(request, url, ctx, env) {
@@ -135,22 +133,24 @@ async function handleDiyp(request, url, ctx, env) {
     });
   }
 
-  const source = await getSourceStream(ctx, env);
-  let stream = source.stream;
+  // 1. 尝试主源
+  let result = await fetchAndFind(ctx, env.EPG_URL, ch, date, url.origin, env);
 
-  // DIYP 接口需要文本内容，如果是 Gzip 则必须解压
-  if (source.isGzip) {
-    stream = stream.pipeThrough(new DecompressionStream('gzip'));
+  // 2. 如果主源没找到，且配置了备用源，则尝试备用源
+  if (result.programs.length === 0 && env.EPG_URL_BACKUP) {
+    console.log(`Primary source failed for ${ch}, trying backup...`);
+    const backupResult = await fetchAndFind(ctx, env.EPG_URL_BACKUP, ch, date, url.origin, env);
+    
+    // 如果备用源找到了，就使用备用源的结果
+    if (backupResult.programs.length > 0) {
+      result = backupResult;
+    }
   }
-
-  const xmlText = await new Response(stream).text();
-  // 执行智能查找，包含模糊匹配逻辑
-  const result = smartFind(xmlText, ch, date, url.origin);
 
   if (result.programs.length === 0) {
     return new Response(JSON.stringify({ 
       code: 404, 
-      message: "No programs found",
+      message: "No programs found in all sources",
       debug_info: `Requested '${ch}' normalized to '${normalizeName(ch)}'` 
     }), {
       headers: { 'content-type': 'application/json; charset=utf-8' },
@@ -166,19 +166,35 @@ async function handleDiyp(request, url, ctx, env) {
   });
 }
 
+// 辅助函数：获取流、解压并查找
+async function fetchAndFind(ctx, sourceUrl, ch, date, originUrl, env) {
+  try {
+    const source = await getSourceStream(ctx, sourceUrl, env);
+    let stream = source.stream;
+    
+    if (source.isGzip) {
+      stream = stream.pipeThrough(new DecompressionStream('gzip'));
+    }
+
+    const xmlText = await new Response(stream).text();
+    return smartFind(xmlText, ch, date, originUrl);
+  } catch (e) {
+    console.error(`Error fetching/parsing source ${sourceUrl}:`, e);
+    // 出错时返回空结果，以便逻辑能继续处理（例如尝试下一个源）
+    return { programs: [], response: {} };
+  }
+}
+
 // =========================================================
 // 4. 工具函数 & HTML 模板
 // =========================================================
 
 function smartFind(xml, userChannelName, targetDateStr, originUrl) {
-  // 核心模糊匹配逻辑：归一化用户输入
-  // 移除空格、横线、下划线，转大写。例如 "CCTV-1" -> "CCTV1"
   const normalizedInput = normalizeName(userChannelName);
   let channelID = "";
   let icon = "";
   let realDisplayName = "";
 
-  // 改进的正则匹配，提取频道信息
   const channelRegex = /<channel id="([^"]+)">[\s\S]*?<display-name[^>]*>([^<]+)<\/display-name>[\s\S]*?(?:<icon src="([^"]+)" \/>)?[\s\S]*?<\/channel>/g;
   
   let match;
@@ -187,9 +203,6 @@ function smartFind(xml, userChannelName, targetDateStr, originUrl) {
     const nameInXml = match[2];
     const iconInXml = match[3] || "";
     
-    // 对 XML 中的频道名也进行同样的归一化比较
-    // 这样 "CCTV 1" (XML) 和 "CCTV-1" (Input) 都会变成 "CCTV1" 从而匹配成功
-    // 同时保留了精确性，因为 "CCTV5" 和 "CCTV5+" 不会被错误归一化成同一个 (normalizeName 不移除 + 号)
     if (normalizeName(nameInXml) === normalizedInput) {
       channelID = id;
       realDisplayName = nameInXml;
@@ -204,7 +217,6 @@ function smartFind(xml, userChannelName, targetDateStr, originUrl) {
   const targetDateCompact = targetDateStr.replace(/-/g, '');
   const channelAttr = `channel="${channelID}"`;
   
-  // 使用 indexOf 快速定位，避免大文件正则性能问题
   let pos = xml.indexOf(channelAttr);
   while (pos !== -1) {
     const startTagIndex = xml.lastIndexOf('<programme', pos);
@@ -214,7 +226,6 @@ function smartFind(xml, userChannelName, targetDateStr, originUrl) {
       const progStr = xml.substring(startTagIndex, endTagIndex + 12);
       const startMatch = progStr.match(/start="([^"]+)"/);
       
-      // 匹配日期
       if (startMatch && startMatch[1].startsWith(targetDateCompact)) {
         const stopMatch = progStr.match(/stop="([^"]+)"/);
         const titleMatch = progStr.match(/<title[^>]*>([^<]+)<\/title>/);
@@ -228,7 +239,6 @@ function smartFind(xml, userChannelName, targetDateStr, originUrl) {
         });
       }
     }
-    // 继续查找下一个节目
     pos = xml.indexOf(channelAttr, pos + 1);
   }
 
@@ -249,9 +259,6 @@ function smartFind(xml, userChannelName, targetDateStr, originUrl) {
 
 function normalizeName(name) {
   if (!name) return "";
-  // 模糊匹配核心：转大写，移除所有空格、横线、下划线
-  // 这将把 "CCTV-1", "CCTV 1", "cctv-1" 统一为 "CCTV1"
-  // 注意："+" 号不会被移除，保证了 CCTV5+ 的精确区分
   return name.trim().toUpperCase().replace(/[\s\-_]/g, '');
 }
 
@@ -260,7 +267,7 @@ function formatTime(raw) {
   return `${raw.substring(8, 10)}:${raw.substring(10, 12)}`;
 }
 
-// 提示 HTML：当未设置环境变量时显示
+// 提示 HTML
 function getSetupGuideHTML() {
   return `
 <!DOCTYPE html>
@@ -291,7 +298,8 @@ function getSetupGuideHTML() {
         <div class="step">
             3. 点击 <strong>Add Variable</strong>，添加以下变量：
             <ul>
-                <li><code>EPG_URL</code> (必填): 您的 EPG XML/GZ 源地址。</li>
+                <li><code>EPG_URL</code> (必填): 主 EPG 源地址。</li>
+                <li><code>EPG_URL_BACKUP</code> (可选): 备用 EPG 源地址。</li>
                 <li><code>CACHE_TTL</code> (可选): 缓存时间(秒)，例如 300。</li>
             </ul>
         </div>
@@ -303,9 +311,8 @@ function getSetupGuideHTML() {
 </html>`;
 }
 
-// 首页 HTML：当配置正确但未访问具体路径时显示
+// 首页 HTML
 function getUsageHTML(baseUrl) {
-  // 获取当前北京时间 (UTC+8)
   const now = new Date();
   const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
   const beijingTime = new Date(utc + (3600000 * 8));
@@ -330,16 +337,17 @@ function getUsageHTML(baseUrl) {
 </head>
 <body>
     <div class="container">
-        <h1>✅ EPG 服务运行中</h1>
+        <h1>✅ EPG 服务运行中 (主备模式)</h1>
         <p>配置已加载，服务就绪。可用接口如下：</p>
         
-        <h3>1. DIYP 接口 (JSON)</h3>
+        <h3>1. DIYP 接口 (智能聚合)</h3>
+        <p>优先查主源，无结果自动查备源。</p>
         <code>${baseUrl}epg/diyp?ch=CCTV1&date=${dateStr}</code>
         
-        <h3>2. XML 下载 (自动解压)</h3>
+        <h3>2. XML 下载 (仅主源)</h3>
         <code>${baseUrl}epg/epg.xml</code>
         
-        <h3>3. GZ 下载 (自动压缩)</h3>
+        <h3>3. GZ 下载 (仅主源)</h3>
         <code>${baseUrl}epg/epg.xml.gz</code>
     </div>
 </body>
