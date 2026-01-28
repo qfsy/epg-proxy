@@ -3,7 +3,7 @@
  * 包含：XML智能匹配、名称归一化、时间格式化等
  */
 
-export function smartFind(xml, userChannelName, targetDateStr, originUrl) {
+export function smartFind(xml, userChannelName, targetDateStr, originUrl, currentPath = '/epg/diyp') {
   const normalizedInput = normalizeName(userChannelName);
   let channelID = "";
   let icon = "";
@@ -71,7 +71,7 @@ export function smartFind(xml, userChannelName, targetDateStr, originUrl) {
       channel_id: channelID,
       channel_name: realDisplayName,
       date: targetDateStr,
-      url: `${originUrl}/epg/diyp`,
+      url: `${originUrl}${currentPath}`, // 修复：使用动态路径
       icon: icon,
       epg_data: programs
     }

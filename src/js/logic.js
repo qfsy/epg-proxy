@@ -94,6 +94,7 @@ export async function handleDiyp(request, url, ctx, env) {
   // 超级直播有时候会用 channel 或 id
   const ch = url.searchParams.get('ch') || url.searchParams.get('channel') || url.searchParams.get('id');
   const date = url.searchParams.get('date');
+  const currentPath = url.pathname; // 获取当前请求路径 (如 /epg/epginfo)
 
   if (!ch || !date) {
     return new Response(JSON.stringify({ code: 400, message: "Missing params: ch (or channel/id) or date" }), {
@@ -102,12 +103,12 @@ export async function handleDiyp(request, url, ctx, env) {
   }
 
   // 1. 尝试主源
-  let result = await fetchAndFind(ctx, env.EPG_URL, ch, date, url.origin, env);
+  let result = await fetchAndFind(ctx, env.EPG_URL, ch, date, url.origin, env, currentPath);
 
   // 2. 如果主源没找到，且配置了备用源，则尝试备用源
   if (result.programs.length === 0 && env.EPG_URL_BACKUP) {
     console.log(`Primary source failed for ${ch}, trying backup...`);
-    const backupResult = await fetchAndFind(ctx, env.EPG_URL_BACKUP, ch, date, url.origin, env);
+    const backupResult = await fetchAndFind(ctx, env.EPG_URL_BACKUP, ch, date, url.origin, env, currentPath);
     
     // 如果备用源找到了，就使用备用源的结果
     if (backupResult.programs.length > 0) {
@@ -135,7 +136,7 @@ export async function handleDiyp(request, url, ctx, env) {
 }
 
 // 内部辅助：获取流 -> 解压 -> 解析
-async function fetchAndFind(ctx, sourceUrl, ch, date, originUrl, env) {
+async function fetchAndFind(ctx, sourceUrl, ch, date, originUrl, env, currentPath) {
   try {
     const source = await getSourceStream(ctx, sourceUrl, env);
     let stream = source.stream;
@@ -146,7 +147,8 @@ async function fetchAndFind(ctx, sourceUrl, ch, date, originUrl, env) {
     }
 
     const xmlText = await new Response(stream).text();
-    return smartFind(xmlText, ch, date, originUrl);
+    // 传递当前路径给 smartFind
+    return smartFind(xmlText, ch, date, originUrl, currentPath);
   } catch (e) {
     console.error(`Error processing source ${sourceUrl}:`, e);
     return { programs: [], response: {} };
