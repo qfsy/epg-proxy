@@ -1,173 +1,157 @@
 /**
- * Cloudflare Worker EPG Server
- * 功能：下载 Gzip XML -> 解压 -> 解析 -> 按需筛选 JSON
+ * Cloudflare Worker EPG Server (零依赖在线版)
+ * 功能：下载 Gzip XML -> 解压 -> 正则解析 -> JSON
+ * 无需 NPM install，可直接在 Cloudflare 网页端部署
  */
-
-import { XMLParser } from 'fast-xml-parser';
 
 // 配置
 const EPG_URL = "https://raw.githubusercontent.com/kuke31/xmlgz/main/all.xml.gz";
-const CACHE_TTL = 300; // 缓存时间 300秒 (5分钟)
+const CACHE_TTL = 300; // 缓存时间 300秒
 
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
-    // 路由匹配: 只处理 /epg/diyp
+    // 路由匹配
     if (url.pathname === '/epg/diyp') {
-      return handleDiyp(request, url);
+      return handleDiyp(request, url, ctx);
     }
 
-    // 默认返回 404
-    return new Response('Not Found', { status: 404 });
+    return new Response('Not Found. Please use /epg/diyp', { status: 404 });
   },
 };
 
-async function handleDiyp(request, url) {
+async function handleDiyp(request, url, ctx) {
   const ch = url.searchParams.get('ch');
-  const date = url.searchParams.get('date'); // 格式 2023-10-27
+  const date = url.searchParams.get('date'); // 2023-10-27
 
   if (!ch || !date) {
-    return new Response(JSON.stringify({ code: 400, message: "Missing 'ch' or 'date' parameters" }), {
-      headers: { 'content-type': 'application/json' }
+    return new Response(JSON.stringify({ code: 400, message: "Missing 'ch' or 'date'" }), {
+      headers: { 'content-type': 'application/json; charset=utf-8' }
     });
   }
 
   try {
-    // 1. 获取 EPG 数据 (带缓存机制)
-    const tvData = await fetchEPGData(request);
+    // 1. 获取并解压数据
+    const xmlText = await fetchEPGData(ctx);
     
-    // 2. 筛选节目
-    const result = findPrograms(tvData, ch, date, url.origin);
+    // 2. 解析与筛选 (使用原生逻辑，不依赖库)
+    const result = parseAndFind(xmlText, ch, date, url.origin);
 
-    if (!result.programs || result.programs.length === 0) {
+    if (result.programs.length === 0) {
       return new Response(JSON.stringify({ code: 404, message: "No programs found" }), {
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json; charset=utf-8' },
         status: 404
       });
     }
 
-    // 3. 返回结果
     return new Response(JSON.stringify(result.response), {
       headers: {
         'content-type': 'application/json; charset=utf-8',
-        'access-control-allow-origin': '*' // 允许跨域
+        'access-control-allow-origin': '*'
       }
     });
 
   } catch (e) {
     return new Response(JSON.stringify({ code: 500, message: e.message }), {
       status: 500,
-      headers: { 'content-type': 'application/json' }
+      headers: { 'content-type': 'application/json; charset=utf-8' }
     });
   }
 }
 
-// 获取并解析 XML 数据
-async function fetchEPGData(request) {
+// 获取、解压并缓存 XML 文本
+async function fetchEPGData(ctx) {
   const cache = caches.default;
-  const cacheKey = new Request(EPG_URL, { method: "GET" }); // 使用源 URL 作为缓存键
+  const cacheKey = new Request(EPG_URL, { method: "GET" });
 
-  // 1. 尝试从 Cloudflare 缓存获取
   let response = await cache.match(cacheKey);
 
-  let xmlText = "";
-
   if (!response) {
-    console.log("Cache miss, fetching from origin...");
-    // 2. 缓存未命中，下载文件
+    console.log("Cache miss, fetching...");
     const originResponse = await fetch(EPG_URL);
-    
     if (!originResponse.ok) throw new Error("Failed to fetch EPG xml");
 
-    // 3. 处理 Gzip 解压
-    // 注意：如果是 .gz 文件，Response body 是个流，我们需要通过 DecompressionStream 解压
-    // 如果服务器 header 已经声明了 gzip，fetch 会自动解压，但 raw git 文件通常被视为二进制
-    let decompressedStream = originResponse.body;
-    if (EPG_URL.endsWith('.gz') || originResponse.headers.get('content-type') === 'application/gzip') {
-       decompressedStream = originResponse.body.pipeThrough(new DecompressionStream('gzip'));
+    // 处理 Gzip 解压 (Web Standard API)
+    let stream = originResponse.body;
+    // 简单判断：如果以 .gz 结尾或 content-type 包含 gzip
+    if (EPG_URL.endsWith('.gz') || (originResponse.headers.get('content-type') || '').includes('gzip')) {
+       stream = originResponse.body.pipeThrough(new DecompressionStream('gzip'));
     }
 
-    // 读取解压后的文本
-    xmlText = await new Response(decompressedStream).text();
+    const text = await new Response(stream).text();
 
-    // 4. 存入缓存 (设置 Cache-Control)
-    // 我们缓存的是解压后的纯文本，避免每次都解压，节省 CPU
-    const responseToCache = new Response(xmlText, {
-      headers: { 
-        'Cache-Control': `public, max-age=${CACHE_TTL}`,
-        'Content-Type': 'application/xml'
-      }
+    // 存入缓存
+    response = new Response(text, {
+      headers: { 'Cache-Control': `public, max-age=${CACHE_TTL}` }
     });
-    // 使用 ctx.waitUntil 可能会导致此处逻辑复杂，直接 put 简单
-    await cache.put(cacheKey, responseToCache.clone());
-  } else {
-    console.log("Cache hit");
-    xmlText = await response.text();
+    // waitUntil 确保在返回前缓存不被中断
+    ctx.waitUntil(cache.put(cacheKey, response.clone()));
+    return text;
   }
-
-  // 5. 解析 XML
-  const parser = new XMLParser({
-    ignoreAttributes: false, // 读取属性 (id, start, stop)
-    attributeNamePrefix: "", // 不使用前缀
-    isArray: (name, jpath, isLeafNode, isAttribute) => { 
-        // 强制 channel 和 programme 为数组，防止只有一个节目时变成对象
-        return name === "channel" || name === "programme"; 
-    }
-  });
-
-  return parser.parse(xmlText);
+  
+  return response.text();
 }
 
-// 核心筛选逻辑
-function findPrograms(tvData, channelName, dateStr, originUrl) {
-  const tv = tvData.tv;
-  if (!tv) throw new Error("Invalid XML format");
-
+/**
+ * 核心逻辑：使用正则解析 XML 字符串
+ * 替代 fast-xml-parser 库
+ */
+function parseAndFind(xml, targetChannelName, targetDateStr, originUrl) {
+  // 1. 查找频道 ID 和 Icon
+  // 正则匹配 <channel id="..."> ... <display-name>CCTV1</display-name>
+  // 注意：XML 可能包含换行，使用 [\s\S]*? 或 [^]*? 来匹配多行
+  
   let channelID = "";
   let icon = "";
-  let channelNameFound = "";
-
-  // 1. 查找频道 ID
-  // Go代码逻辑：遍历 Channels 找到对应 DisplayName
-  const targetChannel = tv.channel?.find(c => c["display-name"] === channelName);
   
-  if (targetChannel) {
-    channelID = targetChannel.id;
-    icon = targetChannel.icon?.src || ""; // icon 可能是对象也可能是属性，根据 fast-xml-parser 行为调整
-    channelNameFound = targetChannel["display-name"];
-  } else {
-    // 如果找不到频道，直接返回空
-    return { programs: [] };
+  // 简单的正则提取频道块
+  const channelRegex = /<channel id="([^"]+)">[\s\S]*?<display-name>([^<]+)<\/display-name>[\s\S]*?(?:<icon src="([^"]+)" \/>)?[\s\S]*?<\/channel>/g;
+  
+  let match;
+  while ((match = channelRegex.exec(xml)) !== null) {
+    const id = match[1];
+    const name = match[2]; // display-name
+    const iconSrc = match[3] || ""; // icon (可能为空)
+
+    if (name === targetChannelName) {
+      channelID = id;
+      icon = iconSrc;
+      break; // 找到了就退出
+    }
   }
 
-  // 2. 格式化目标日期用于比较 (Input: 2023-10-27 -> Compare: 20231027)
-  const targetDateCompact = dateStr.replace(/-/g, ''); 
+  if (!channelID) {
+    return { programs: [], response: {} };
+  }
 
-  // 3. 筛选节目
+  // 2. 格式化目标日期 (2023-10-27 -> 20231027)
+  const targetDateCompact = targetDateStr.replace(/-/g, ''); 
+
+  // 3. 查找节目单
+  // 匹配 <programme start="..." stop="..." channel="..."> ... <title>...</title> ... </programme>
   const programs = [];
   
-  if (tv.programme) {
-    for (const p of tv.programme) {
-      if (p.channel === channelID) {
-        // XML 时间格式通常是: 20231027120000 +0800
-        // 我们只需要前8位判断日期
-        const pStartRaw = p.start; // "20231027183200 +0800"
-        const pDatePart = pStartRaw.substring(0, 8);
+  // 优化：只查找包含该频道ID的 programme 标签，提高正则效率
+  // 这一步正则比较重，但对于 EPG 这种结构通常没问题
+  // 格式: <programme start="20231027000000 +0800" stop="..." channel="CCTV1">
+  const progRegex = new RegExp(`<programme start="([^"]+)" stop="([^"]+)" channel="${escapeRegExp(channelID)}"[^>]*>[\\s\\S]*?<title[^>]*>([^<]+)<\\/title>(?:[\\s\\S]*?<desc[^>]*>([\\s\\S]*?)<\\/desc>)?`, 'g');
 
-        if (pDatePart === targetDateCompact) {
-          // 格式化时间 HH:mm
-          const startTime = formatTime(p.start);
-          const endTime = formatTime(p.stop);
+  let pMatch;
+  while ((pMatch = progRegex.exec(xml)) !== null) {
+    const startRaw = pMatch[1]; // 20231027000000 +0800
+    const stopRaw = pMatch[2];
+    const title = pMatch[3];
+    const desc = pMatch[4] || "";
 
-          programs.push({
-            start: startTime,
-            end: endTime,
-            title: p.title,
-            desc: p.desc || ""
-          });
-        }
-      }
+    // 检查日期是否匹配 (取前8位)
+    if (startRaw.startsWith(targetDateCompact)) {
+      programs.push({
+        start: formatTime(startRaw),
+        end: formatTime(stopRaw),
+        title: title,
+        desc: desc
+      });
     }
   }
 
@@ -177,19 +161,23 @@ function findPrograms(tvData, channelName, dateStr, originUrl) {
       code: 200,
       message: "请求成功",
       channel_id: channelID,
-      channel_name: channelNameFound,
-      date: dateStr,
-      url: `${originUrl}/epg/diyp`, // 动态获取 Worker 的域名
+      channel_name: targetChannelName,
+      date: targetDateStr,
+      url: `${originUrl}/epg/diyp`,
       icon: icon,
       epg_data: programs
     }
   };
 }
 
-// 辅助函数：从 "20231027183200 +0800" 提取 "18:32"
+// 辅助：转义正则中的特殊字符
+function escapeRegExp(string) {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// 辅助：提取时间 HH:mm
 function formatTime(raw) {
+  // raw 格式通常是 "20231027183200 +0800"
   if (!raw || raw.length < 12) return "";
-  const hour = raw.substring(8, 10);
-  const minute = raw.substring(10, 12);
-  return `${hour}:${minute}`;
+  return `${raw.substring(8, 10)}:${raw.substring(10, 12)}`;
 }
