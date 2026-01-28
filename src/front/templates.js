@@ -50,16 +50,16 @@ const COMMON_STYLE = `
   .tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.8rem; font-weight: 600; background: var(--primary); color: white; margin-left: 8px; }
   .tag.optional { background: var(--text-muted); }
   
-  /* 优化后的代码块样式：整体可点击 */
+  /* === 核心交互样式 === */
   .code-box { 
-    position: relative;
+    position: relative; /* 关键：作为绝对定位子元素的参考基准 */
     background: var(--code-bg); 
     border: 1px solid var(--border); 
     border-radius: 6px; 
     margin-top: 0.5rem; 
     cursor: pointer; 
     transition: all 0.2s ease;
-    overflow: hidden;
+    overflow: hidden; /* 防止圆角溢出 */
   }
   
   .code-box:hover {
@@ -67,40 +67,55 @@ const COMMON_STYLE = `
     background-color: rgba(37, 99, 235, 0.05);
   }
 
+  /* 复制成功时的边框颜色 */
   .code-box.copied {
     border-color: var(--success) !important;
-    background-color: var(--success-bg) !important;
-  }
-  
-  /* 状态变化时针对内部 code 的样式覆盖 */
-  .code-box.copied code {
-    color: var(--success);
-    font-weight: bold;
-    display: flex;
-    justify-content: center;
-    align-items: center;
   }
 
-  /* 全局通用 code 样式 (修复换行问题) */
+  /* 全局通用 code 样式 */
   code { 
     font-family: 'Menlo', 'Monaco', 'Courier New', monospace; 
     font-size: 0.9em; 
     color: var(--primary); 
-    background: var(--code-bg); /* 给行内代码加个背景 */
-    padding: 0.2rem 0.4rem;     /* 行内小间距 */
+    background: var(--code-bg); 
+    padding: 0.2rem 0.4rem;
     border-radius: 4px;
   }
 
-  /* URL 复制框内的 code 特有样式 (恢复块级显示) */
+  /* URL 容器内的 code 样式 */
   .code-box code {
-    display: block;          /* 独占一行 */
-    background: transparent; /* 背景由 box 接管 */
-    padding: 0.8rem 1rem;    /* 大间距 */
-    word-break: break-all;   /* URL 强制断行 */
-    user-select: none;       /* 防止点击时选中文字 */
+    display: block;          
+    background: transparent; 
+    padding: 0.8rem 1rem;    
+    word-break: break-all;   
+    user-select: none;       
     border-radius: 0;
   }
 
+  /* === 新增：状态覆盖层 === */
+  /* 这个层平时隐藏，复制成功时显示并覆盖在 URL 上 */
+  /* 因为 URL 还在下面占位，所以高度不会变 */
+  .status {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: var(--success-bg);
+    color: var(--success);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+    font-size: 0.95rem;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+    pointer-events: none; /* 让点击穿透（虽然覆盖了，但保持逻辑清晰） */
+  }
+
+  /* 激活状态：显示覆盖层 */
+  .code-box.copied .status {
+    opacity: 1;
+  }
+
+  /* === 悬浮提示文字 (Tooltip) === */
   .code-box::after {
     content: "点击复制";
     position: absolute;
@@ -120,6 +135,7 @@ const COMMON_STYLE = `
   .code-box:hover::after {
     opacity: 1;
   }
+  /* 复制成功时隐藏 tooltip */
   .code-box.copied::after {
     opacity: 0 !important;
   }
@@ -132,18 +148,16 @@ const COMMON_STYLE = `
 </style>
 <script>
   function copyText(box, text) {
+    // 防止重复点击
     if (box.classList.contains('copied')) return;
 
-    const codeElem = box.querySelector('code');
-    const originalText = codeElem.innerText;
-
     navigator.clipboard.writeText(text).then(() => {
+      // 仅切换 CSS 类，不修改 innerText，保持高度不变
       box.classList.add('copied');
-      codeElem.innerText = "✅ 已复制";
       
+      // 1.5秒后恢复
       setTimeout(() => {
         box.classList.remove('copied');
-        codeElem.innerText = originalText;
       }, 1500);
     }).catch(err => {
       console.error('Copy failed', err);
@@ -230,6 +244,7 @@ export function getUsageHTML(baseUrl) {
             <p>适用于 DIYP影音、百川 等播放器。</p>
             <div class="code-box" onclick="copyText(this, '${diypUrl}')">
                 <code>${diypUrl}</code>
+                <div class="status">✅ 已复制</div>
             </div>
         </div>
 
@@ -238,6 +253,7 @@ export function getUsageHTML(baseUrl) {
             <p>适用于 超级直播、友窝 等，兼容 <code>ch/channel/id</code> 参数。</p>
             <div class="code-box" onclick="copyText(this, '${superLiveUrl}')">
                 <code>${superLiveUrl}</code>
+                <div class="status">✅ 已复制</div>
             </div>
         </div>
         
@@ -246,6 +262,7 @@ export function getUsageHTML(baseUrl) {
             <p>标准 XML 格式，适合不支持接口查询的播放器。</p>
             <div class="code-box" onclick="copyText(this, '${xmlUrl}')">
                 <code>${xmlUrl}</code>
+                <div class="status">✅ 已复制</div>
             </div>
         </div>
         
@@ -254,6 +271,7 @@ export function getUsageHTML(baseUrl) {
             <p>Gzip 压缩格式，推荐 TiviMate 使用，节省带宽。</p>
             <div class="code-box" onclick="copyText(this, '${gzUrl}')">
                 <code>${gzUrl}</code>
+                <div class="status">✅ 已复制</div>
             </div>
         </div>
 
