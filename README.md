@@ -10,7 +10,7 @@
 
 ## ✨ 核心功能
 
-* **配置灵活**：支持通过环境变量设置 **主、备两个** EPG 源，无需修改代码。
+* **配置灵活**：支持通过环境变量设置 EPG 源，无需修改代码。
 * **全格式支持**：支持输入 `.xml` 或 `.xml.gz` 格式的 EPG 源。
 * **三合一输出**：
     * **DIYP 接口** (`/epg/diyp`)：供播放器按需查询，支持 JSON 格式。**（支持主备源自动切换：优先查主源，失败查备源）**
@@ -33,8 +33,13 @@
 2. 进入 **Workers & Pages** -> **Create Application** -> **Create Worker**。
 3. 命名你的 Worker（例如 `my-epg`），点击 **Deploy**。
 4. 点击 **Edit code**（快速编辑）。
-5. 将本项目 `worker.js` 中的代码完全复制并覆盖编辑器中的内容，点击 **Deploy**。
-6. **重要步骤**：转到 Worker 的 **Settings** -> **Variables** 页面，点击 **Add Variable** 添加配置：
+5. **创建文件结构**：在左侧文件列表中，右键或点击图标创建文件夹和文件，建立如下结构：
+   * `worker.js` (入口文件)
+   * `src/js/logic.js`
+   * `src/js/utils.js`
+   * `src/front/templates.js`
+6. 将本项目中对应的代码分别复制并覆盖到上述文件中，点击 **Deploy**。
+7. **重要步骤**：转到 Worker 的 **Settings** -> **Variables** 页面，点击 **Add Variable** 添加配置：
    * `EPG_URL`: (必填) 你的 **主** EPG 源地址 (如 `https://example.com/e.xml.gz`)。
    * `EPG_URL_BACKUP`: (可选) 你的 **备用** EPG 源地址。
    * `CACHE_TTL`: (可选) 缓存时间秒数 (默认 300)。
@@ -56,8 +61,8 @@
 
 | 变量名 | 必填 | 默认值 | 说明 |
 | :--- | :--- | :--- | :--- |
-| `EPG_URL` | ✅ 是 | - | **主** EPG 源地址，支持 http/https，支持 .xml 或 .xml.gz |
-| `EPG_URL_BACKUP` | ❌ 否 | - | **备用** EPG 源地址，仅在 DIYP 接口主源查询失败时启用 |
+| `EPG_URL` | ✅ 是 | - | **主** EPG 文件的直连地址，支持 http/https，支持 .xml 或 .xml.gz |
+| `EPG_URL_BACKUP` | ❌ 否 | - | **备用** EPG 文件地址，仅在 DIYP 接口主源查询失败时启用 |
 | `CACHE_TTL` | ❌ 否 | 300 | 源文件在 Cloudflare 边缘节点的缓存时间（秒） |
 
 ## 📖 API 使用说明
