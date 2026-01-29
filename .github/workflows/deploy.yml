@@ -89,7 +89,35 @@ jobs:
             echo "has_epg=true" >> $GITHUB_ENV
           fi
 
-      # 第六步：部署到 Cloudflare Workers
+      # 第六步：动态生成密钥列表 (Fix: 解决非必填项报错问题)
+      # 只有当变量真实存在时，才将其加入到 secrets 列表中
+      - name: Generate Secret List
+        id: secret_gen
+        # 将 secret 映射到 env，以便在脚本中安全判断
+        env:
+          EPG_URL_BACKUP: ${{ secrets.EPG_URL_BACKUP }}
+          CACHE_TTL: ${{ secrets.CACHE_TTL }}
+        run: |
+          # 开始构建列表，EPG_URL 是必填项，一定包含
+          # 使用 EOF 块写入 GITHUB_OUTPUT，支持多行
+          {
+            echo "list<<EOF"
+            echo "EPG_URL"
+            
+            # 如果 EPG_URL_BACKUP 不为空，则加入列表
+            if [ -n "$EPG_URL_BACKUP" ]; then
+              echo "EPG_URL_BACKUP"
+            fi
+            
+            # 如果 CACHE_TTL 不为空，则加入列表
+            if [ -n "$CACHE_TTL" ]; then
+              echo "CACHE_TTL"
+            fi
+            
+            echo "EOF"
+          } >> $GITHUB_OUTPUT
+
+      # 第七步：部署到 Cloudflare Workers
       # 仅在 Cloudflare 密钥 和 EPG_URL 同时存在时执行
       - name: Deploy to Cloudflare
         if: env.has_cf_creds == 'true' && env.has_epg == 'true'
@@ -97,13 +125,11 @@ jobs:
         with:
           apiToken: ${{ secrets.CF_API_TOKEN }}
           accountId: ${{ secrets.CF_ACCOUNT_ID }}
-          # 将 GitHub Secrets 中的环境变量注入到 Worker 中
-          secrets: |
-            EPG_URL
-            EPG_URL_BACKUP
-            CACHE_TTL
+          # 关键修改：使用上一步动态生成的列表，而不是硬编码
+          secrets: ${{ steps.secret_gen.outputs.list }}
         env:
-          # 必须在此处映射环境变量，wrangler-action 才能读取并上传为 Secret
+          # 依然需要在此处映射所有可能用到的环境变量
+          # 即使值为空也没关系，因为 wrangler 只有在 secrets 列表中声明了才会去读取
           EPG_URL: ${{ secrets.EPG_URL }}
           EPG_URL_BACKUP: ${{ secrets.EPG_URL_BACKUP }}
           CACHE_TTL: ${{ secrets.CACHE_TTL }}
