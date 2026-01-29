@@ -35,7 +35,28 @@ jobs:
         id: check_cf_creds
         run: |
           if [ -z "${{ secrets.CF_API_TOKEN }}" ] || [ -z "${{ secrets.CF_ACCOUNT_ID }}" ]; then
-            echo "Cloudflare credentials (CF_API_TOKEN or CF_ACCOUNT_ID) not found."
+            # 发送全局警告
+            echo "::warning::Cloudflare credentials missing (CF_API_TOKEN or CF_ACCOUNT_ID). Deployment skipped."
+            
+            # 生成详细报告到 Summary
+            echo "## 🛑 部署已跳过 (Deployment Skipped)" >> $GITHUB_STEP_SUMMARY
+            echo "检测到缺少 Cloudflare 认证密钥，无法进行部署。" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "| Secret Name | Status | Required |" >> $GITHUB_STEP_SUMMARY
+            echo "| --- | --- | --- |" >> $GITHUB_STEP_SUMMARY
+            
+            if [ -z "${{ secrets.CF_API_TOKEN }}" ]; then
+              echo "| CF_API_TOKEN | ❌ Missing | Yes |" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "| CF_API_TOKEN | ✅ Found | Yes |" >> $GITHUB_STEP_SUMMARY
+            fi
+            
+            if [ -z "${{ secrets.CF_ACCOUNT_ID }}" ]; then
+              echo "| CF_ACCOUNT_ID | ❌ Missing | Yes |" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "| CF_ACCOUNT_ID | ✅ Found | Yes |" >> $GITHUB_STEP_SUMMARY
+            fi
+            
             echo "has_cf_creds=false" >> $GITHUB_ENV
           else
             echo "Cloudflare credentials found."
@@ -48,7 +69,20 @@ jobs:
         id: check_epg
         run: |
           if [ -z "${{ secrets.EPG_URL }}" ]; then
-            echo "EPG_URL secret not found."
+            # 发送全局警告
+            echo "::warning::EPG_URL secret is missing! Deployment will be skipped."
+            
+            # 生成详细报告到 Summary
+            echo "## ⚠️ 配置缺失警告 (Configuration Warning)" >> $GITHUB_STEP_SUMMARY
+            echo "虽然 Cloudflare 密钥存在，但缺少核心业务变量 **EPG_URL**。" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "| 变量名 | 状态 | 说明 |" >> $GITHUB_STEP_SUMMARY
+            echo "| --- | --- | --- |" >> $GITHUB_STEP_SUMMARY
+            echo "| **EPG_URL** | ❌ 缺失 | **必填**：主 EPG 源地址 |" >> $GITHUB_STEP_SUMMARY
+            echo "| EPG_URL_BACKUP | ℹ️ 可选 | 备用源地址 |" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "> 请前往 **Settings -> Secrets and variables -> Actions** 添加该变量。" >> $GITHUB_STEP_SUMMARY
+            
             echo "has_epg=false" >> $GITHUB_ENV
           else
             echo "EPG_URL found."
