@@ -1,12 +1,13 @@
 # Cloudflare Worker EPG Proxy
 
 [![Deploy to Cloudflare Workers](https://img.shields.io/badge/Deploy%20to-Cloudflare%20Workers-orange?logo=cloudflare&style=for-the-badge)](https://workers.cloudflare.com/)
+[![Docker Image](https://img.shields.io/badge/Docker-Image-blue?logo=docker&style=for-the-badge)](https://github.com/gujiangjiang/cf-worker-epg/pkgs/container/cf-worker-epg)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge)](LICENSE)
 
 一个运行在 Cloudflare Workers 上的高性能 EPG (电子节目单) 代理与转换工具。
 它可以将通用的 XMLTV 格式 EPG 转换为播放器（如 DIYP、超级直播、TiviMate）所需的 JSON 接口，同时提供 XML 和 GZ 格式的流式转换下载。
 
-利用 Cloudflare 的全球边缘网络，实现毫秒级响应，无需购买服务器，零成本部署。
+利用 Cloudflare 的全球边缘网络，实现毫秒级响应，无需购买服务器，零成本部署。支持 Docker 本地部署。
 
 ## ✨ 核心功能
 
@@ -49,7 +50,32 @@
    - 重新部署一次（或在 Deployments 选项卡中 Retry）以使变量生效。
 5. **后续更新**：以后只需修改 GitHub 代码并推送，Cloudflare 会自动触发重新部署。
 
-### 方法二：GitHub Actions 自动部署 (高级)
+### 方法二：Docker 部署 (本地/VPS 自托管)
+
+适合需要突破 Cloudflare 限制或在内网 NAS 上运行的用户。
+
+1. **拉取镜像**：
+   ```bash
+   docker pull ghcr.io/gujiangjiang/cf-worker-epg:latest
+   ```
+
+2. **运行容器**：
+   ```bash
+   docker run -d \
+     --name epg-proxy \
+     -p 8787:8787 \
+     -e EPG_URL="http://example.com/e.xml" \
+     -e EPG_URL_BACKUP="http://example.com/backup.xml" \
+     -e CACHE_TTL=300 \
+     ghcr.io/gujiangjiang/cf-worker-epg:latest
+   ```
+
+3. **访问服务**：
+   - 首页：`http://localhost:8787`
+   - DIYP 接口：`http://localhost:8787/epg/diyp`
+   -超级直播接口：`http://localhost:8787/epg/epginfo`
+
+### 方法三：GitHub Actions 自动部署 (高级)
 
 利用本项目内置的 GitHub Actions 工作流，通过 Token 部署。
 
@@ -67,7 +93,7 @@
 3. **触发部署**：
    - 配置完成后，任意推送代码或在 Actions 页面手动触发，即可自动部署。
 
-### 方法三：使用 Wrangler 命令行 (本地开发)
+### 方法四：使用 Wrangler 命令行 (本地开发)
 
 1. 克隆本项目：
    ```bash
@@ -94,13 +120,12 @@
 
 ## 📖 API 使用说明
 
-假设你的 Worker 域名为 `https://epg.your-domain.workers.dev`
+假设你的服务域名为 `http://192.168.1.10:8787` 或 `https://epg.your-domain.workers.dev`
 
 ### 1. DIYP 接口
 * **URL**: `/epg/diyp`
 * **示例**: `.../epg/diyp?ch=CCTV1&date=2024-01-24`
 
-* **URL**: `https://epg.your-domain.workers.dev/epg/diyp`
 * **参数**:
     * `ch`: 频道名称 (支持模糊匹配，如 `CCTV1`, `湖南卫视`)
     * `date`: 日期 (格式 `YYYY-MM-DD`)
@@ -110,19 +135,19 @@
 * **URL**: `/epg/epginfo`
 * **特点**: 兼容性更强，支持 `ch`, `channel`, `id` 参数。
 * **逻辑**: 优先查询主源，若未找到频道或请求失败，自动查询备用源。
-* **示例**: `https://epg.your-domain.workers.dev/epg/epginfo?channel=CCTV1&date=2024-01-24`
+* **示例**: `.../epg/epginfo?channel=CCTV1&date=2024-01-24`
 
 ### 3. XML 文件下载
 获取解压后的 XML 文件。无论源是 xml 还是 gz，这里永远输出 xml。
 *(注：为保证性能，文件下载接口仅使用主源数据)*
 
-* **URL**: `https://epg.your-domain.workers.dev/epg/epg.xml`
+* **URL**: `.../epg/epg.xml`
 
 ### 4. GZ 压缩文件下载
 获取压缩后的 GZ 文件。无论源是 xml 还是 gz，这里永远输出 gz。推荐使用此接口以节省带宽。
 *(注：为保证性能，文件下载接口仅使用主源数据)*
 
-* **URL**: `https://epg.your-domain.workers.dev/epg/epg.xml.gz`
+* **URL**: `.../epg/epg.xml.gz`
 
 ## 📄 License
 
