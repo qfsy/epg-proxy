@@ -63,8 +63,8 @@ jobs:
             echo "has_cf_creds=true" >> $GITHUB_ENV
           fi
 
-      # 第五步：检查 EPG_URL 变量
-      # 独立检查业务必须的 EPG_URL 变量
+      # 第五步：检查 EPG_URL 变量 (独立 Check)
+      # 独立检查业务必须的 EPG_URL 变量，只有当基础密钥存在时才有意义，但此处作为独立步骤执行
       - name: Check for EPG_URL
         id: check_epg
         run: |
@@ -74,7 +74,7 @@ jobs:
             
             # 生成详细报告到 Summary
             echo "## ⚠️ 配置缺失警告 (Configuration Warning)" >> $GITHUB_STEP_SUMMARY
-            echo "虽然 Cloudflare 密钥存在，但缺少核心业务变量 **EPG_URL**。" >> $GITHUB_STEP_SUMMARY
+            echo "虽然 Cloudflare 密钥可能存在，但缺少核心业务变量 **EPG_URL**。" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "| 变量名 | 状态 | 说明 |" >> $GITHUB_STEP_SUMMARY
             echo "| --- | --- | --- |" >> $GITHUB_STEP_SUMMARY
@@ -118,7 +118,7 @@ jobs:
           } >> $GITHUB_OUTPUT
 
       # 第七步：部署到 Cloudflare Workers
-      # 仅在 Cloudflare 密钥 和 EPG_URL 同时存在时执行
+      # 逻辑判断：仅在 Cloudflare 密钥 (Step 4) 和 EPG_URL (Step 5) 同时存在时执行
       - name: Deploy to Cloudflare
         if: env.has_cf_creds == 'true' && env.has_epg == 'true'
         uses: cloudflare/wrangler-action@v3
