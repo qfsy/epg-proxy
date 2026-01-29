@@ -31,7 +31,9 @@
 
 ## 🚀 部署指南
 
-### 方法一：GitHub 自动部署 (推荐 - 自动更新)
+### 方法一：GitHub 自动部署 (Cloudflare 集成 - 推荐)
+
+利用 Cloudflare 原生集成的 CI/CD 功能，适合初次使用者。
 
 1. **Fork 本项目**：将代码 Fork 到你自己的 GitHub 仓库。
 2. **连接 Cloudflare**：
@@ -47,18 +49,25 @@
    - 重新部署一次（或在 Deployments 选项卡中 Retry）以使变量生效。
 5. **后续更新**：以后只需修改 GitHub 代码并推送，Cloudflare 会自动触发重新部署。
 
-### 方法二：直接在 Cloudflare 网页端部署 (手动)
+### 方法二：GitHub Actions 自动部署 (高级)
 
-1. 登录 Cloudflare Dashboard。
-2. 创建一个 Worker。
-3. **创建文件结构**：
-   * `src/js/index.js` (入口文件)
-   * `src/js/logic.js`
-   * `src/js/utils.js`
-   * `src/front/templates.js`
-4. 在 **Settings** -> **Variables** 中添加环境变量。
+利用本项目内置的 GitHub Actions 工作流，通过 Token 部署。
 
-### 方法三：使用 Wrangler 命令行
+1. **获取 Cloudflare 密钥**：
+   - `CF_API_TOKEN`: 在 [Cloudflare Profile](https://dash.cloudflare.com/profile/api-tokens) 创建 Token，模板选择 "Edit Cloudflare Workers"。
+   - `CF_ACCOUNT_ID`: 在 Cloudflare Dashboard 右侧边栏找到 "Account ID"。
+2. **配置 GitHub Secrets**：
+   - 进入你的 GitHub 仓库，点击 **Settings** -> **Secrets and variables** -> **Actions**。
+   - 点击 **New repository secret**，添加以下变量：
+     - `CF_API_TOKEN` (必填)
+     - `CF_ACCOUNT_ID` (必填)
+     - `EPG_URL` (必填): 你的主 EPG 源地址。
+     - `EPG_URL_BACKUP` (可选): 备用源。
+     - `CACHE_TTL` (可选): 缓存时间。
+3. **触发部署**：
+   - 配置完成后，任意推送代码或在 Actions 页面手动触发，即可自动部署。
+
+### 方法三：使用 Wrangler 命令行 (本地开发)
 
 1. 克隆本项目：
    ```bash
@@ -73,6 +82,7 @@
    ```bash
    npx wrangler deploy
    ```
+   *注意：本地部署后，请记得在 Cloudflare Dashboard 中手动配置 `EPG_URL` 等环境变量。*
 
 ## ⚙️ 环境变量说明
 
