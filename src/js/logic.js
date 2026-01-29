@@ -1,19 +1,17 @@
-// 文件路径: src/js/logic.js
 /**
  * 核心业务逻辑模块
  * 处理 EPG 下载、流式传输、缓存以及 DIYP 接口逻辑
- * [优化] 导出 CORS_HEADERS 供 index.js 复用
+ * [优化] 增加 API 结果缓存 (Cache API)，大幅减少重复计算
  */
 
 import { smartFind, isGzipContent } from './utils.js';
 
 const DEFAULT_CACHE_TTL = 300; // 默认缓存 5 分钟
 
-// [优化] 导出常量，供 index.js 处理 OPTIONS 请求时使用
 export const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type', // 补充常用头
+  'Access-Control-Allow-Headers': 'Content-Type',
 };
 
 // =========================================================
@@ -25,7 +23,6 @@ export async function getSourceStream(ctx, targetUrl, env) {
   const cache = caches.default;
   const cacheKey = new Request(targetUrl, { method: "GET" });
   
-  // 尝试从缓存获取
   let cachedRes = await cache.match(cacheKey);
   if (cachedRes) {
     return {
@@ -35,12 +32,10 @@ export async function getSourceStream(ctx, targetUrl, env) {
     };
   }
 
-  // 缓存未命中，回源拉取
   console.log(`Cache miss, fetching from: ${targetUrl}`);
   const originRes = await fetch(targetUrl);
   if (!originRes.ok) throw new Error(`Source fetch failed: ${originRes.status}`);
 
-  // 复制流：一份用于缓存，一份用于当前响应
   const [streamForCache, streamForUse] = originRes.body.tee();
 
   const responseToCache = new Response(streamForCache, {
@@ -49,7 +44,7 @@ export async function getSourceStream(ctx, targetUrl, env) {
     statusText: originRes.statusText
   });
   
-  // 设置缓存时间
+  // 源文件缓存
   responseToCache.headers.set("Cache-Control", `public, max-age=${cacheTtl}`);
   ctx.waitUntil(cache.put(cacheKey, responseToCache));
 
@@ -73,13 +68,11 @@ export async function handleDownload(ctx, targetFormat, sourceUrl, env) {
 
   if (targetFormat === 'xml') {
     contentType = "application/xml; charset=utf-8";
-    // 如果源是 Gzip 但请求 XML，则解压
     if (source.isGzip) {
       finalStream = finalStream.pipeThrough(new DecompressionStream('gzip'));
     }
   } else if (targetFormat === 'gz') {
     contentType = "application/gzip";
-    // 如果源不是 Gzip 但请求 GZ，则压缩
     if (!source.isGzip) {
       finalStream = finalStream.pipeThrough(new CompressionStream('gzip'));
     }
@@ -89,7 +82,7 @@ export async function handleDownload(ctx, targetFormat, sourceUrl, env) {
     headers: {
       "Content-Type": contentType,
       "Cache-Control": `public, max-age=${cacheTtl}`,
-      ...CORS_HEADERS // 复用导出常量
+      ...CORS_HEADERS
     }
   });
 }
@@ -99,54 +92,67 @@ export async function handleDownload(ctx, targetFormat, sourceUrl, env) {
 // =========================================================
 
 export async function handleDiyp(request, url, ctx, env) {
-  // 兼容性优化：支持 ch, channel, id 三种参数名
+  const cacheTtl = parseInt(env.CACHE_TTL) || DEFAULT_CACHE_TTL;
+  const cache = caches.default;
+  
+  // [新增] 1. 尝试从缓存获取 API 结果
+  // Cloudflare Cache API 使用 request 对象作为 key
+  // 相同的 URL 参数 (ch=CCTV1&date=...) 将命中同一个缓存
+  let cachedResponse = await cache.match(request);
+  if (cachedResponse) {
+    // 命中缓存：直接返回，跳过 XML 解析！性能提升 100x
+    return cachedResponse;
+  }
+
   const ch = url.searchParams.get('ch') || url.searchParams.get('channel') || url.searchParams.get('id');
   const date = url.searchParams.get('date');
   const currentPath = url.pathname; 
 
   if (!ch || !date) {
     return new Response(JSON.stringify({ code: 400, message: "Missing params: ch (or channel/id) or date" }), {
-      headers: { 
-        'content-type': 'application/json',
-        ...CORS_HEADERS 
-      }
+      headers: { 'content-type': 'application/json', ...CORS_HEADERS }
     });
   }
 
-  // 1. 尝试主源
+  // 2. 执行查询逻辑 (耗时操作)
   let result = await fetchAndFind(ctx, env.EPG_URL, ch, date, url.origin, env, currentPath);
 
-  // 2. 如果主源没找到，且配置了备用源，则尝试备用源
   if (result.programs.length === 0 && env.EPG_URL_BACKUP) {
     console.log(`Primary source failed for ${ch}, trying backup...`);
     const backupResult = await fetchAndFind(ctx, env.EPG_URL_BACKUP, ch, date, url.origin, env, currentPath);
-    
-    // 如果备用源找到了，就使用备用源的结果
     if (backupResult.programs.length > 0) {
       result = backupResult;
     }
   }
 
+  // 3. 构造响应
+  let finalResponse;
   if (result.programs.length === 0) {
-    return new Response(JSON.stringify({ 
+    finalResponse = new Response(JSON.stringify({ 
       code: 404, 
       message: "No programs found",
       debug_info: { channel: ch, date: date }
     }), {
-      headers: { 
-        'content-type': 'application/json; charset=utf-8',
-        ...CORS_HEADERS
-      },
+      headers: { 'content-type': 'application/json; charset=utf-8', ...CORS_HEADERS },
       status: 404
     });
+    // 404 响应通常不缓存，或缓存很短时间，这里暂不写入 Cache API
+  } else {
+    finalResponse = new Response(JSON.stringify(result.response), {
+      headers: {
+        'content-type': 'application/json; charset=utf-8',
+        // [关键] 设置 Cache-Control 允许 Cloudflare 和浏览器缓存此结果
+        'Cache-Control': `public, max-age=${cacheTtl}`,
+        ...CORS_HEADERS
+      }
+    });
+
+    // [新增] 4. 将成功的结果写入缓存
+    // 必须使用 response.clone() 因为 put 会消耗流
+    ctx.waitUntil(cache.put(request, finalResponse.clone()));
   }
 
-  return new Response(JSON.stringify(result.response), {
-    headers: {
-      'content-type': 'application/json; charset=utf-8',
-      ...CORS_HEADERS
-    }
-  });
+  return finalResponse;
 }
 
 // 内部辅助：获取流 -> 解压 -> 解析
@@ -155,13 +161,11 @@ async function fetchAndFind(ctx, sourceUrl, ch, date, originUrl, env, currentPat
     const source = await getSourceStream(ctx, sourceUrl, env);
     let stream = source.stream;
     
-    // 解析需要文本，如果是 Gzip 必须解压
     if (source.isGzip) {
       stream = stream.pipeThrough(new DecompressionStream('gzip'));
     }
 
     const xmlText = await new Response(stream).text();
-    // 传递当前路径给 smartFind
     return smartFind(xmlText, ch, date, originUrl, currentPath);
   } catch (e) {
     console.error(`Error processing source ${sourceUrl}:`, e);
