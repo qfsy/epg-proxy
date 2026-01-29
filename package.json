@@ -1,7 +1,7 @@
 {
-  "name": "cf-worker-epg",
+  "name": "epg-proxy",
   "version": "1.0.0",
-  "description": "High performance EPG proxy on Cloudflare Workers",
+  "description": "High performance EPG proxy (Cloudflare Workers & Docker)",
   "main": "src/js/index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
@@ -11,7 +11,8 @@
     "cloudflare",
     "worker",
     "epg",
-    "proxy"
+    "proxy",
+    "docker"
   ],
   "author": "gujiangjiang",
   "license": "MIT",

@@ -203,11 +203,11 @@ export function getSetupGuideHTML() {
 <body>
     <div class="container">
         <h1><span class="icon">⚠️</span> 服务尚未配置</h1>
-        <p>EPG Proxy Worker 已成功运行，但检测到核心环境变量缺失。请按照以下步骤完成配置。</p>
+        <p>EPG Proxy 已成功运行，但检测到核心环境变量缺失。请按照以下步骤完成配置。</p>
         
         <div class="card">
-            <h3>第一步：打开 Cloudflare 设置</h3>
-            <p>登录 Cloudflare Dashboard，进入您的 Worker 项目，点击 <strong>Settings (设置)</strong> -> <strong>Variables (变量)</strong>。</p>
+            <h3>第一步：环境配置</h3>
+            <p>如果是 Cloudflare Workers，请进入 <strong>Settings</strong> -> <strong>Variables</strong>。<br>如果是 Docker 部署，请检查环境变量设置。</p>
         </div>
 
         <div class="card">
@@ -247,11 +247,11 @@ export function getSetupGuideHTML() {
 
         <div class="card">
             <h3>第三步：保存并刷新</h3>
-            <p>点击 <strong>Save and Deploy</strong>，配置生效后刷新此页面即可看到服务状态。</p>
+            <p>配置生效后刷新此页面即可看到服务状态。</p>
         </div>
         
         <div class="footer">
-            Powered by Cloudflare Workers &bull; EPG Proxy
+            Powered by EPG Proxy
         </div>
     </div>
 </body>
@@ -284,12 +284,12 @@ export function getUsageHTML(baseUrl) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>EPG 服务运行中</title>
+    <title>EPG Proxy 服务运行中</title>
     ${COMMON_STYLE}
 </head>
 <body>
     <div class="container">
-        <h1><span class="icon">✅</span> EPG 服务运行中</h1>
+        <h1><span class="icon">✅</span> EPG Proxy 服务运行中</h1>
         <p>配置加载成功，主备双源模式就绪。点击下方链接即可复制。</p>
         
         <div class="card">
@@ -357,7 +357,7 @@ export function getUsageHTML(baseUrl) {
         </div>
 
         <div class="footer">
-            Powered by Cloudflare Workers &bull; Server Time: ${beijingTime.toLocaleString('zh-CN')}
+            Powered by EPG Proxy &bull; Server Time: ${beijingTime.toLocaleString('zh-CN')}
         </div>
     </div>
 </body>

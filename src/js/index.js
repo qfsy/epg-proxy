@@ -1,5 +1,5 @@
 /**
- * Cloudflare Worker EPG Server (模块化重构版)
+ * EPG Proxy Server (模块化重构版)
  * * 入口文件：负责路由分发与环境检查
  */
 

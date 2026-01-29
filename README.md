@@ -1,13 +1,13 @@
-# Cloudflare Worker EPG Proxy
+# EPG Proxy
 
 [![Deploy to Cloudflare Workers](https://img.shields.io/badge/Deploy%20to-Cloudflare%20Workers-orange?logo=cloudflare&style=for-the-badge)](https://workers.cloudflare.com/)
-[![Docker Image](https://img.shields.io/badge/Docker-Image-blue?logo=docker&style=for-the-badge)](https://github.com/gujiangjiang/cf-worker-epg/pkgs/container/cf-worker-epg)
+[![Docker Image](https://img.shields.io/badge/Docker-Image-blue?logo=docker&style=for-the-badge)](https://github.com/gujiangjiang/epg-proxy/pkgs/container/epg-proxy)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge)](LICENSE)
 
-一个运行在 Cloudflare Workers 上的高性能 EPG (电子节目单) 代理与转换工具。
+一个高性能 EPG (电子节目单) 代理与转换工具，支持 Cloudflare Workers 与 Docker 部署。
 它可以将通用的 XMLTV 格式 EPG 转换为播放器（如 DIYP、超级直播、TiviMate）所需的 JSON 接口，同时提供 XML 和 GZ 格式的流式转换下载。
 
-利用 Cloudflare 的全球边缘网络，实现毫秒级响应，无需购买服务器，零成本部署。支持 Docker 本地部署。
+利用 Cloudflare 的全球边缘网络，实现毫秒级响应，无需购买服务器，零成本部署。也支持 Docker 本地/VPS 私有化部署。
 
 ## ✨ 核心功能
 
@@ -56,7 +56,7 @@
 
 1. **拉取镜像**：
    ```bash
-   docker pull ghcr.io/gujiangjiang/cf-worker-epg:latest
+   docker pull ghcr.io/gujiangjiang/epg-proxy:latest
    ```
 
 2. **运行容器 (Docker CLI)**：
@@ -68,7 +68,7 @@
      -e EPG_URL="http://example.com/e.xml" \
      -e EPG_URL_BACKUP="http://example.com/backup.xml" \
      -e CACHE_TTL=300 \
-     ghcr.io/gujiangjiang/cf-worker-epg:latest
+     ghcr.io/gujiangjiang/epg-proxy:latest
    ```
 
    **或者使用 Docker Compose (推荐)**：
@@ -77,7 +77,7 @@
    version: '3'
    services:
      epg-proxy:
-       image: ghcr.io/gujiangjiang/cf-worker-epg:latest
+       image: ghcr.io/gujiangjiang/epg-proxy:latest
        container_name: epg-proxy
        restart: unless-stopped
        ports:
@@ -116,8 +116,8 @@
 
 1. 克隆本项目：
    ```bash
-   git clone https://github.com/gujiangjiang/cf-worker-epg.git
-   cd cf-worker-epg
+   git clone https://github.com/gujiangjiang/epg-proxy.git
+   cd epg-proxy
    ```
 2. 安装依赖：
    ```bash
