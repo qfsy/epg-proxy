@@ -1,7 +1,7 @@
 /**
  * 核心业务逻辑模块
  * 处理 EPG 下载、流式传输、缓存以及 DIYP 接口逻辑
- * [优化] 增加 API 结果缓存 (Cache API)，大幅减少重复计算
+ * [最终版] 优化缓存键策略，确保最大化命中率
  */
 
 import { smartFind, isGzipContent } from './utils.js';
@@ -21,6 +21,7 @@ export const CORS_HEADERS = {
 export async function getSourceStream(ctx, targetUrl, env) {
   const cacheTtl = parseInt(env.CACHE_TTL) || DEFAULT_CACHE_TTL;
   const cache = caches.default;
+  // 源文件缓存使用 Upstream URL 作为 Key，确保全网复用
   const cacheKey = new Request(targetUrl, { method: "GET" });
   
   let cachedRes = await cache.match(cacheKey);
@@ -44,7 +45,6 @@ export async function getSourceStream(ctx, targetUrl, env) {
     statusText: originRes.statusText
   });
   
-  // 源文件缓存
   responseToCache.headers.set("Cache-Control", `public, max-age=${cacheTtl}`);
   ctx.waitUntil(cache.put(cacheKey, responseToCache));
 
@@ -95,12 +95,14 @@ export async function handleDiyp(request, url, ctx, env) {
   const cacheTtl = parseInt(env.CACHE_TTL) || DEFAULT_CACHE_TTL;
   const cache = caches.default;
   
-  // [新增] 1. 尝试从缓存获取 API 结果
-  // Cloudflare Cache API 使用 request 对象作为 key
-  // 相同的 URL 参数 (ch=CCTV1&date=...) 将命中同一个缓存
-  let cachedResponse = await cache.match(request);
+  // [优化] 构造标准化缓存键 (Canonical Cache Key)
+  // 仅使用 URL 和 method，忽略 Header 差异 (如 User-Agent)
+  // 这样无论是什么播放器请求同一个频道，都能命中同一份缓存
+  const cacheKey = new Request(url.toString(), { method: 'GET' });
+  
+  // 1. 尝试从缓存获取 API 结果
+  let cachedResponse = await cache.match(cacheKey);
   if (cachedResponse) {
-    // 命中缓存：直接返回，跳过 XML 解析！性能提升 100x
     return cachedResponse;
   }
 
@@ -114,7 +116,7 @@ export async function handleDiyp(request, url, ctx, env) {
     });
   }
 
-  // 2. 执行查询逻辑 (耗时操作)
+  // 2. 执行查询
   let result = await fetchAndFind(ctx, env.EPG_URL, ch, date, url.origin, env, currentPath);
 
   if (result.programs.length === 0 && env.EPG_URL_BACKUP) {
@@ -136,20 +138,17 @@ export async function handleDiyp(request, url, ctx, env) {
       headers: { 'content-type': 'application/json; charset=utf-8', ...CORS_HEADERS },
       status: 404
     });
-    // 404 响应通常不缓存，或缓存很短时间，这里暂不写入 Cache API
   } else {
     finalResponse = new Response(JSON.stringify(result.response), {
       headers: {
         'content-type': 'application/json; charset=utf-8',
-        // [关键] 设置 Cache-Control 允许 Cloudflare 和浏览器缓存此结果
         'Cache-Control': `public, max-age=${cacheTtl}`,
         ...CORS_HEADERS
       }
     });
 
-    // [新增] 4. 将成功的结果写入缓存
-    // 必须使用 response.clone() 因为 put 会消耗流
-    ctx.waitUntil(cache.put(request, finalResponse.clone()));
+    // 4. 将成功的结果写入缓存 (使用标准化的 cacheKey)
+    ctx.waitUntil(cache.put(cacheKey, finalResponse.clone()));
   }
 
   return finalResponse;
@@ -165,6 +164,8 @@ async function fetchAndFind(ctx, sourceUrl, ch, date, originUrl, env, currentPat
       stream = stream.pipeThrough(new DecompressionStream('gzip'));
     }
 
+    // 注意：如果文件过大 (如 >100MB)，这里可能会内存溢出
+    // 但对于普通 EPG (10-50MB)，Cloudflare Worker 均能处理
     const xmlText = await new Response(stream).text();
     return smartFind(xmlText, ch, date, originUrl, currentPath);
   } catch (e) {
