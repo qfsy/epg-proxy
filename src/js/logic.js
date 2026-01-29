@@ -1,11 +1,19 @@
+// 文件路径: src/js/logic.js
 /**
  * 核心业务逻辑模块
  * 处理 EPG 下载、流式传输、缓存以及 DIYP 接口逻辑
+ * [优化] 统一 CORS 头，减少冗余代码
  */
 
 import { smartFind, isGzipContent } from './utils.js';
 
 const DEFAULT_CACHE_TTL = 300; // 默认缓存 5 分钟
+
+// [优化] 提取通用 CORS 头
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
+};
 
 // =========================================================
 // 1. 数据源获取与缓存
@@ -79,8 +87,8 @@ export async function handleDownload(ctx, targetFormat, sourceUrl, env) {
   return new Response(finalStream, {
     headers: {
       "Content-Type": contentType,
-      "Access-Control-Allow-Origin": "*",
-      "Cache-Control": `public, max-age=${cacheTtl}`
+      "Cache-Control": `public, max-age=${cacheTtl}`,
+      ...CORS_HEADERS // [优化] 使用扩展运算符注入 CORS 头
     }
   });
 }
@@ -91,14 +99,16 @@ export async function handleDownload(ctx, targetFormat, sourceUrl, env) {
 
 export async function handleDiyp(request, url, ctx, env) {
   // 兼容性优化：支持 ch, channel, id 三种参数名
-  // 超级直播有时候会用 channel 或 id
   const ch = url.searchParams.get('ch') || url.searchParams.get('channel') || url.searchParams.get('id');
   const date = url.searchParams.get('date');
-  const currentPath = url.pathname; // 获取当前请求路径 (如 /epg/epginfo)
+  const currentPath = url.pathname; 
 
   if (!ch || !date) {
     return new Response(JSON.stringify({ code: 400, message: "Missing params: ch (or channel/id) or date" }), {
-      headers: { 'content-type': 'application/json' }
+      headers: { 
+        'content-type': 'application/json',
+        ...CORS_HEADERS 
+      }
     });
   }
 
@@ -122,7 +132,10 @@ export async function handleDiyp(request, url, ctx, env) {
       message: "No programs found",
       debug_info: { channel: ch, date: date }
     }), {
-      headers: { 'content-type': 'application/json; charset=utf-8' },
+      headers: { 
+        'content-type': 'application/json; charset=utf-8',
+        ...CORS_HEADERS
+      },
       status: 404
     });
   }
@@ -130,7 +143,7 @@ export async function handleDiyp(request, url, ctx, env) {
   return new Response(JSON.stringify(result.response), {
     headers: {
       'content-type': 'application/json; charset=utf-8',
-      'access-control-allow-origin': '*'
+      ...CORS_HEADERS
     }
   });
 }
