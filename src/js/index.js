@@ -29,11 +29,9 @@ export default {
       });
     }
 
-    // [优化] 路径归一化：移除末尾的斜杠，避免 "/epg/diyp/" 无法匹配的问题
-    // 如果路径是 "/" 则保持不变，否则移除末尾斜杠
-    const normalizedPath = url.pathname.endsWith('/') && url.pathname.length > 1 
-      ? url.pathname.slice(0, -1) 
-      : url.pathname;
+    // [优化 v2.3] 路径归一化：使用正则移除末尾所有的斜杠
+    // 例如 "/epg/diyp/" 或 "/epg/diyp//" 都会变成 "/epg/diyp"
+    const normalizedPath = url.pathname === '/' ? '/' : url.pathname.replace(/\/+$/, '');
 
     try {
       // 2. 路由分发
