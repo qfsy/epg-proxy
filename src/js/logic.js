@@ -1,16 +1,20 @@
 /**
  * 核心业务逻辑模块
  * 处理 EPG 下载、流式传输、缓存以及 DIYP 接口逻辑
- * [优化] 引入实例级内存缓存，进一步减少 CPU 解析开销
+ * [v2.2 优化] 增加内存缓存大小限制，适配 Docker 低内存环境
  */
 
 import { smartFind, isGzipContent } from './utils.js';
 
 const DEFAULT_CACHE_TTL = 300; // 默认缓存 5 分钟
 
-// [新增] 全局内存缓存 (Worker 实例级别)
-// 用于缓存解压后的 XML 文本，避免重复调用 response.text() 带来的巨大 CPU/IO 开销
-// 注意：Worker 可能会因内存限制被重置，这是正常的，缓存只是为了加速热启动后的请求
+// [安全配置] 内存缓存最大字符数阈值
+// 10,000,000 字符 ≈ 20MB 内存占用 (JS 字符串通常占用 2字节/字符)
+// 如果源文件解压后超过这个大小，为了防止 Docker/Worker OOM，将不使用内存缓存
+const MAX_MEMORY_CACHE_CHARS = 10 * 1024 * 1024;
+
+// [全局内存缓存]
+// Docker 环境下此对象会常驻内存，命中率极高
 const IN_MEMORY_CACHE = {
   url: null,      // 当前缓存的源地址
   text: null,     // 解析后的 XML 文本内容
@@ -105,8 +109,6 @@ export async function handleDiyp(request, url, ctx, env) {
   const cache = caches.default;
   
   // [优化] 构造标准化缓存键 (Canonical Cache Key)
-  // 仅使用 URL 和 method，忽略 Header 差异 (如 User-Agent)
-  // 这样无论是什么播放器请求同一个频道，都能命中同一份缓存
   const cacheKey = new Request(url.toString(), { method: 'GET' });
   
   // 1. 尝试从缓存获取 API 结果
@@ -156,7 +158,7 @@ export async function handleDiyp(request, url, ctx, env) {
       }
     });
 
-    // 4. 将成功的结果写入缓存 (使用标准化的 cacheKey)
+    // 4. 将成功的结果写入缓存
     ctx.waitUntil(cache.put(cacheKey, finalResponse.clone()));
   }
 
@@ -164,22 +166,22 @@ export async function handleDiyp(request, url, ctx, env) {
 }
 
 // 内部辅助：获取流 -> 解压 -> 解析
-// [更新] 增加了内存缓存逻辑
+// [更新] 包含内存缓存熔断机制
 async function fetchAndFind(ctx, sourceUrl, ch, date, originUrl, env, currentPath) {
   try {
     const cacheTtl = parseInt(env.CACHE_TTL) || DEFAULT_CACHE_TTL;
     const now = Date.now();
 
-    // --- 内存缓存检查 ---
-    // 如果 URL 匹配且未过期，直接使用内存中的文本
+    // --- 1. 内存缓存检查 ---
+    // Docker 环境下，这层缓存非常高效
     if (IN_MEMORY_CACHE.url === sourceUrl && 
         IN_MEMORY_CACHE.text && 
         now < IN_MEMORY_CACHE.expireTime) {
-      // console.log("Memory Cache Hit!"); // 调试用
+      // console.log("Memory Cache Hit!"); 
       return smartFind(IN_MEMORY_CACHE.text, ch, date, originUrl, currentPath);
     }
 
-    // --- 内存未命中，执行标准获取流程 ---
+    // --- 2. 网络获取 ---
     const source = await getSourceStream(ctx, sourceUrl, env);
     let stream = source.stream;
     
@@ -187,15 +189,21 @@ async function fetchAndFind(ctx, sourceUrl, ch, date, originUrl, env, currentPat
       stream = stream.pipeThrough(new DecompressionStream('gzip'));
     }
 
-    // 读取并转换为文本 (耗时操作)
+    // 读取文本 (最耗时的步骤)
     const xmlText = await new Response(stream).text();
 
-    // --- 更新内存缓存 ---
-    // 只有当文本长度在合理范围内时才缓存（防止 OOM，例如限制 80MB）
-    // Cloudflare Worker 限制通常为 128MB，这里不做硬性限制，由用户自行控制源大小
-    IN_MEMORY_CACHE.url = sourceUrl;
-    IN_MEMORY_CACHE.text = xmlText;
-    IN_MEMORY_CACHE.expireTime = now + (cacheTtl * 1000);
+    // --- 3. 写入内存缓存 (带熔断保护) ---
+    // 只有当文件大小在安全范围内时，才写入内存
+    if (xmlText.length < MAX_MEMORY_CACHE_CHARS) {
+        IN_MEMORY_CACHE.url = sourceUrl;
+        IN_MEMORY_CACHE.text = xmlText;
+        IN_MEMORY_CACHE.expireTime = now + (cacheTtl * 1000);
+        console.log(`[Cache] Stored ${xmlText.length} chars in memory.`);
+    } else {
+        console.warn(`[Cache] Skipped memory cache: Content too large (${xmlText.length} chars > ${MAX_MEMORY_CACHE_CHARS})`);
+        // 主动释放大字符串引用（虽然 JS 垃圾回收会自动处理，但明确意图更好）
+        IN_MEMORY_CACHE.text = null; 
+    }
 
     return smartFind(xmlText, ch, date, originUrl, currentPath);
   } catch (e) {
