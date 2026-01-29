@@ -29,28 +29,41 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      # 第四步：检查 Cloudflare 密钥是否存在
-      # 这是一个保护性步骤，防止在未配置密钥的 Fork 仓库中运行失败
+      # 第四步：检查 Cloudflare 基础密钥
+      # 优先检查连接 Cloudflare 所需的认证信息
       - name: Check for Cloudflare credentials
-        id: cf_creds
+        id: check_cf_creds
         run: |
           if [ -z "${{ secrets.CF_API_TOKEN }}" ] || [ -z "${{ secrets.CF_ACCOUNT_ID }}" ]; then
-            echo "Cloudflare credentials not found, skipping deployment."
-            echo "has_creds=false" >> $GITHUB_ENV
+            echo "Cloudflare credentials (CF_API_TOKEN or CF_ACCOUNT_ID) not found."
+            echo "has_cf_creds=false" >> $GITHUB_ENV
           else
-            echo "has_creds=true" >> $GITHUB_ENV
+            echo "Cloudflare credentials found."
+            echo "has_cf_creds=true" >> $GITHUB_ENV
           fi
 
-      # 第五步：部署到 Cloudflare Workers
-      # 仅在检测到必要密钥（CF_API_TOKEN 和 CF_ACCOUNT_ID）时执行
+      # 第五步：检查 EPG_URL 变量
+      # 独立检查业务必须的 EPG_URL 变量
+      - name: Check for EPG_URL
+        id: check_epg
+        run: |
+          if [ -z "${{ secrets.EPG_URL }}" ]; then
+            echo "EPG_URL secret not found."
+            echo "has_epg=false" >> $GITHUB_ENV
+          else
+            echo "EPG_URL found."
+            echo "has_epg=true" >> $GITHUB_ENV
+          fi
+
+      # 第六步：部署到 Cloudflare Workers
+      # 仅在 Cloudflare 密钥 和 EPG_URL 同时存在时执行
       - name: Deploy to Cloudflare
-        if: env.has_creds == 'true'
+        if: env.has_cf_creds == 'true' && env.has_epg == 'true'
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CF_API_TOKEN }}
           accountId: ${{ secrets.CF_ACCOUNT_ID }}
           # 将 GitHub Secrets 中的环境变量注入到 Worker 中
-          # 注意：EPG_URL 是必填项
           secrets: |
             EPG_URL
             EPG_URL_BACKUP
