@@ -1,4 +1,4 @@
-# 使用 Node.js 20 slim 版本 (Debian 基础，比 Alpine 对 workerd 兼容性更好)
+# 使用 Node.js 20 slim 版本
 FROM node:20-slim
 
 # 设置工作目录
@@ -10,7 +10,7 @@ RUN npm install -g pnpm
 # 复制依赖文件
 COPY package.json pnpm-lock.yaml* ./
 
-# 安装依赖 (包含 wrangler)
+# 安装依赖
 RUN pnpm install
 
 # 复制项目源码
@@ -20,7 +20,14 @@ COPY . .
 COPY docker-entrypoint.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
-# 设置环境变量，减少交互和上报
+# [安全优化] 修复权限并切换到非 root 用户
+# 将 /app 目录的所有权赋予 node 用户，确保 npm/wrangler 可以写入
+RUN chown -R node:node /app
+
+# 切换到 node 用户
+USER node
+
+# 设置环境变量
 ENV CI=true
 ENV WRANGLER_SEND_METRICS=false
 
