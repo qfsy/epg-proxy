@@ -3,8 +3,8 @@
  * 存放 HTML 字符串，实现逻辑与视图分离
  */
 
-// 通用样式与头部
-const COMMON_STYLE = `
+// 通用样式与脚本 (包含 CSS 和 复制功能的 JS)
+const COMMON_ASSETS = `
 <style>
   :root {
     --primary: #2563eb;
@@ -190,18 +190,40 @@ const COMMON_STYLE = `
 </script>
 `;
 
-export function getSetupGuideHTML() {
+/**
+ * 通用页面布局渲染函数 (内部辅助)
+ * * 封装了 HTML 骨架、头部资源引用和页脚逻辑，消除重复代码
+ * * @param {string} title 页面标题
+ * @param {string} mainContent 主要内容 HTML
+ * @param {string} footerExtra 页脚附加信息 (可选)
+ */
+function renderPage(title, mainContent, footerExtra = "") {
   return `
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>服务未配置 - EPG Proxy</title>
-    ${COMMON_STYLE}
+    <title>${title}</title>
+    ${COMMON_ASSETS}
 </head>
 <body>
     <div class="container">
+        ${mainContent}
+        <div class="footer">
+            Powered by EPG Proxy${footerExtra ? ' &bull; ' + footerExtra : ''}
+        </div>
+    </div>
+</body>
+</html>`;
+}
+
+/**
+ * 生成配置引导页面
+ */
+export function getSetupGuideHTML() {
+  const title = "服务未配置 - EPG Proxy";
+  const content = `
         <h1><span class="icon">⚠️</span> 服务尚未配置</h1>
         <p>EPG Proxy 已成功运行，但检测到核心环境变量缺失。请按照以下步骤完成配置。</p>
         
@@ -248,16 +270,14 @@ export function getSetupGuideHTML() {
         <div class="card">
             <h3>第三步：保存并刷新</h3>
             <p>配置生效后刷新此页面即可看到服务状态。</p>
-        </div>
-        
-        <div class="footer">
-            Powered by EPG Proxy
-        </div>
-    </div>
-</body>
-</html>`;
+        </div>`;
+  
+  return renderPage(title, content);
 }
 
+/**
+ * 生成使用说明页面 (首页)
+ */
 export function getUsageHTML(baseUrl) {
   // 获取当前北京时间
   const now = new Date();
@@ -278,17 +298,8 @@ export function getUsageHTML(baseUrl) {
   const xmlUrl = `${baseUrl}epg/epg.xml`;
   const gzUrl = `${baseUrl}epg/epg.xml.gz`;
 
-  return `
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>EPG Proxy 服务运行中</title>
-    ${COMMON_STYLE}
-</head>
-<body>
-    <div class="container">
+  const title = "EPG Proxy 服务运行中";
+  const content = `
         <h1><span class="icon">✅</span> EPG Proxy 服务运行中</h1>
         <p>配置加载成功，主备双源模式就绪。点击下方链接即可复制。</p>
         
@@ -354,12 +365,8 @@ export function getUsageHTML(baseUrl) {
                 <code>${gzUrl}</code>
                 <div class="status">✅ 已复制</div>
             </div>
-        </div>
+        </div>`;
 
-        <div class="footer">
-            Powered by EPG Proxy &bull; Server Time: ${beijingTime.toLocaleString('zh-CN')}
-        </div>
-    </div>
-</body>
-</html>`;
+  const footerExtra = `Server Time: ${beijingTime.toLocaleString('zh-CN')}`;
+  return renderPage(title, content, footerExtra);
 }
