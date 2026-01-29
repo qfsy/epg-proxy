@@ -32,9 +32,16 @@
 
 ## 🚀 部署指南
 
-### 方法一：GitHub 自动部署 (Cloudflare 集成 - 推荐)
+### 方法一：一键部署 (Cloudflare 推荐)
 
-利用 Cloudflare 原生集成的 CI/CD 功能，适合初次使用者。
+[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/gujiangjiang/epg-proxy)
+
+直接点击上方的 **Deploy to Cloudflare Workers** 按钮。
+Cloudflare 会自动克隆本仓库并引导你完成配置，全程无需接触代码，这是最简单的部署方式。
+
+### 方法二：GitHub 自动部署 (CI/CD 集成)
+
+利用 Cloudflare 原生集成的 CI/CD 功能。
 
 1. **Fork 本项目**：将代码 Fork 到你自己的 GitHub 仓库。
 2. **连接 Cloudflare**：
@@ -50,7 +57,7 @@
    - 重新部署一次（或在 Deployments 选项卡中 Retry）以使变量生效。
 5. **后续更新**：以后只需修改 GitHub 代码并推送，Cloudflare 会自动触发重新部署。
 
-### 方法二：Docker 部署 (本地/VPS 自托管)
+### 方法三：Docker 部署 (本地/VPS 自托管)
 
 适合需要突破 Cloudflare 限制或在内网 NAS 上运行的用户。
 
@@ -94,7 +101,7 @@
    - DIYP 接口：`http://localhost:8787/epg/diyp`
    -超级直播接口：`http://localhost:8787/epg/epginfo`
 
-### 方法三：GitHub Actions 自动部署 (高级)
+### 方法四：GitHub Actions 自动部署 (高级)
 
 利用本项目内置的 GitHub Actions 工作流，通过 Token 部署。
 
@@ -112,7 +119,7 @@
 3. **触发部署**：
    - 配置完成后，任意推送代码或在 Actions 页面手动触发，即可自动部署。
 
-### 方法四：使用 Wrangler 命令行 (本地开发)
+### 方法五：使用 Wrangler 命令行 (本地开发)
 
 1. 克隆本项目：
    ```bash
