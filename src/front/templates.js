@@ -212,12 +212,37 @@ export function getSetupGuideHTML() {
 
         <div class="card">
             <h3>第二步：添加环境变量</h3>
-            <p>点击 <strong>Add Variable</strong>，填入以下信息：</p>
-            <ul>
-                <li><code>EPG_URL</code> <span class="tag">必填</span> <br> 您的主 EPG 源地址 (支持 .xml 或 .xml.gz)。</li>
-                <li><code>EPG_URL_BACKUP</code> <span class="tag optional">可选</span> <br> 备用 EPG 源地址 (主源失败时自动切换)。</li>
-                <li><code>CACHE_TTL</code> <span class="tag optional">可选</span> <br> 缓存时间(秒)，默认 300。</li>
-            </ul>
+            <p>点击 <strong>Add Variable</strong>，添加以下变量（点击下方卡片可直接复制变量名）：</p>
+
+            <div class="sub-label">
+                <span>1. 主源地址变量名</span>
+                <span class="tag">必填</span>
+            </div>
+            <div class="code-box" onclick="copyText(this, 'EPG_URL')">
+                <code>EPG_URL</code>
+                <div class="status">✅ 已复制</div>
+            </div>
+            <p class="desc" style="margin-top: 5px; font-size: 0.85rem;">您的主 EPG 文件直连地址 (支持 .xml 或 .xml.gz)</p>
+
+            <div class="sub-label">
+                <span>2. 备用源地址变量名</span>
+                <span class="tag optional">可选</span>
+            </div>
+            <div class="code-box" onclick="copyText(this, 'EPG_URL_BACKUP')">
+                <code>EPG_URL_BACKUP</code>
+                <div class="status">✅ 已复制</div>
+            </div>
+            <p class="desc" style="margin-top: 5px; font-size: 0.85rem;">主源查询失败时自动切换的备用地址</p>
+
+            <div class="sub-label">
+                <span>3. 缓存时间变量名</span>
+                <span class="tag optional">可选</span>
+            </div>
+            <div class="code-box" onclick="copyText(this, 'CACHE_TTL')">
+                <code>CACHE_TTL</code>
+                <div class="status">✅ 已复制</div>
+            </div>
+            <p class="desc" style="margin-top: 5px; font-size: 0.85rem;">源文件在边缘节点的缓存时间(秒)，默认 300</p>
         </div>
 
         <div class="card">
