@@ -1,7 +1,7 @@
 /**
  * 核心业务逻辑模块
  * 处理 EPG 下载、流式传输、缓存以及 DIYP 接口逻辑
- * [v2.2 优化] 增加内存缓存大小限制，适配 Docker 低内存环境
+ * [v2.3 优化] 升级内存缓存为 Map 结构，支持多源并发缓存，解决主备源切换时的缓存颠簸问题
  */
 
 import { smartFind, isGzipContent } from './utils.js';
@@ -10,16 +10,12 @@ const DEFAULT_CACHE_TTL = 300; // 默认缓存 5 分钟
 
 // [安全配置] 内存缓存最大字符数阈值
 // 10,000,000 字符 ≈ 20MB 内存占用 (JS 字符串通常占用 2字节/字符)
-// 如果源文件解压后超过这个大小，为了防止 Docker/Worker OOM，将不使用内存缓存
 const MAX_MEMORY_CACHE_CHARS = 10 * 1024 * 1024;
 
-// [全局内存缓存]
-// Docker 环境下此对象会常驻内存，命中率极高
-const IN_MEMORY_CACHE = {
-  url: null,      // 当前缓存的源地址
-  text: null,     // 解析后的 XML 文本内容
-  expireTime: 0   // 过期时间戳
-};
+// [全局内存缓存 v2.3]
+// 使用 Map 代替单一对象，防止主备源切换时互相覆盖导致缓存失效
+// Key: Source URL, Value: { text: string, expireTime: number }
+const MEMORY_CACHE_MAP = new Map();
 
 export const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -33,39 +29,55 @@ export const CORS_HEADERS = {
 
 export async function getSourceStream(ctx, targetUrl, env) {
   const cacheTtl = parseInt(env.CACHE_TTL) || DEFAULT_CACHE_TTL;
-  const cache = caches.default;
-  // 源文件缓存使用 Upstream URL 作为 Key，确保全网复用
+  
+  // [兼容性修复] 检查 caches 是否存在 (防止在非 Worker/Wrangler 的纯 Node 环境报错)
+  const cache = (typeof caches !== 'undefined') ? caches.default : null;
+  
+  // 源文件缓存使用 Upstream URL 作为 Key
   const cacheKey = new Request(targetUrl, { method: "GET" });
   
-  let cachedRes = await cache.match(cacheKey);
-  if (cachedRes) {
-    return {
-      stream: cachedRes.body,
-      headers: cachedRes.headers,
-      isGzip: isGzipContent(cachedRes.headers, targetUrl)
-    };
+  // 如果环境支持 Cache API，尝试读取
+  if (cache) {
+    let cachedRes = await cache.match(cacheKey);
+    if (cachedRes) {
+      return {
+        stream: cachedRes.body,
+        headers: cachedRes.headers,
+        isGzip: isGzipContent(cachedRes.headers, targetUrl)
+      };
+    }
   }
 
   console.log(`Cache miss, fetching from: ${targetUrl}`);
   const originRes = await fetch(targetUrl);
   if (!originRes.ok) throw new Error(`Source fetch failed: ${originRes.status}`);
 
-  const [streamForCache, streamForUse] = originRes.body.tee();
+  // 只有当有 Cache API 时才需要 tee 流
+  if (cache) {
+    const [streamForCache, streamForUse] = originRes.body.tee();
+    
+    const responseToCache = new Response(streamForCache, {
+      headers: originRes.headers,
+      status: originRes.status,
+      statusText: originRes.statusText
+    });
+    
+    responseToCache.headers.set("Cache-Control", `public, max-age=${cacheTtl}`);
+    ctx.waitUntil(cache.put(cacheKey, responseToCache));
 
-  const responseToCache = new Response(streamForCache, {
-    headers: originRes.headers,
-    status: originRes.status,
-    statusText: originRes.statusText
-  });
-  
-  responseToCache.headers.set("Cache-Control", `public, max-age=${cacheTtl}`);
-  ctx.waitUntil(cache.put(cacheKey, responseToCache));
-
-  return {
-    stream: streamForUse,
-    headers: originRes.headers,
-    isGzip: isGzipContent(originRes.headers, targetUrl)
-  };
+    return {
+      stream: streamForUse,
+      headers: originRes.headers,
+      isGzip: isGzipContent(originRes.headers, targetUrl)
+    };
+  } else {
+    // 无 Cache 环境直接返回流
+    return {
+      stream: originRes.body,
+      headers: originRes.headers,
+      isGzip: isGzipContent(originRes.headers, targetUrl)
+    };
+  }
 }
 
 // =========================================================
@@ -106,15 +118,17 @@ export async function handleDownload(ctx, targetFormat, sourceUrl, env) {
 
 export async function handleDiyp(request, url, ctx, env) {
   const cacheTtl = parseInt(env.CACHE_TTL) || DEFAULT_CACHE_TTL;
-  const cache = caches.default;
+  const cache = (typeof caches !== 'undefined') ? caches.default : null;
   
-  // [优化] 构造标准化缓存键 (Canonical Cache Key)
+  // [优化] 构造标准化缓存键
   const cacheKey = new Request(url.toString(), { method: 'GET' });
   
   // 1. 尝试从缓存获取 API 结果
-  let cachedResponse = await cache.match(cacheKey);
-  if (cachedResponse) {
-    return cachedResponse;
+  if (cache) {
+    let cachedResponse = await cache.match(cacheKey);
+    if (cachedResponse) {
+      return cachedResponse;
+    }
   }
 
   const ch = url.searchParams.get('ch') || url.searchParams.get('channel') || url.searchParams.get('id');
@@ -159,26 +173,32 @@ export async function handleDiyp(request, url, ctx, env) {
     });
 
     // 4. 将成功的结果写入缓存
-    ctx.waitUntil(cache.put(cacheKey, finalResponse.clone()));
+    if (cache) {
+      ctx.waitUntil(cache.put(cacheKey, finalResponse.clone()));
+    }
   }
 
   return finalResponse;
 }
 
 // 内部辅助：获取流 -> 解压 -> 解析
-// [更新] 包含内存缓存熔断机制
+// [更新] 包含内存缓存熔断机制 + 多源支持
 async function fetchAndFind(ctx, sourceUrl, ch, date, originUrl, env, currentPath) {
   try {
     const cacheTtl = parseInt(env.CACHE_TTL) || DEFAULT_CACHE_TTL;
     const now = Date.now();
 
-    // --- 1. 内存缓存检查 ---
-    // Docker 环境下，这层缓存非常高效
-    if (IN_MEMORY_CACHE.url === sourceUrl && 
-        IN_MEMORY_CACHE.text && 
-        now < IN_MEMORY_CACHE.expireTime) {
-      // console.log("Memory Cache Hit!"); 
-      return smartFind(IN_MEMORY_CACHE.text, ch, date, originUrl, currentPath);
+    // --- 1. 内存缓存检查 (v2.3 Map 支持) ---
+    // 检查对应 URL 的缓存是否存在且未过期
+    if (MEMORY_CACHE_MAP.has(sourceUrl)) {
+      const cachedItem = MEMORY_CACHE_MAP.get(sourceUrl);
+      if (cachedItem.text && now < cachedItem.expireTime) {
+        // console.log(`Memory Cache Hit for ${sourceUrl}`);
+        return smartFind(cachedItem.text, ch, date, originUrl, currentPath);
+      } else {
+        // 过期清理
+        MEMORY_CACHE_MAP.delete(sourceUrl);
+      }
     }
 
     // --- 2. 网络获取 ---
@@ -195,14 +215,19 @@ async function fetchAndFind(ctx, sourceUrl, ch, date, originUrl, env, currentPat
     // --- 3. 写入内存缓存 (带熔断保护) ---
     // 只有当文件大小在安全范围内时，才写入内存
     if (xmlText.length < MAX_MEMORY_CACHE_CHARS) {
-        IN_MEMORY_CACHE.url = sourceUrl;
-        IN_MEMORY_CACHE.text = xmlText;
-        IN_MEMORY_CACHE.expireTime = now + (cacheTtl * 1000);
-        console.log(`[Cache] Stored ${xmlText.length} chars in memory.`);
+        // [防止 OOM] 如果 Map 太大 (例如缓存了超过 5 个源)，先清理最早的一个
+        if (MEMORY_CACHE_MAP.size >= 5) {
+            const firstKey = MEMORY_CACHE_MAP.keys().next().value;
+            MEMORY_CACHE_MAP.delete(firstKey);
+        }
+
+        MEMORY_CACHE_MAP.set(sourceUrl, {
+            text: xmlText,
+            expireTime: now + (cacheTtl * 1000)
+        });
+        console.log(`[Cache] Stored ${xmlText.length} chars in memory for ${sourceUrl}`);
     } else {
         console.warn(`[Cache] Skipped memory cache: Content too large (${xmlText.length} chars > ${MAX_MEMORY_CACHE_CHARS})`);
-        // 主动释放大字符串引用（虽然 JS 垃圾回收会自动处理，但明确意图更好）
-        IN_MEMORY_CACHE.text = null; 
     }
 
     return smartFind(xmlText, ch, date, originUrl, currentPath);
