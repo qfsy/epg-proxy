@@ -1,7 +1,22 @@
+// 文件路径: src/js/utils.js
 /**
  * 工具函数模块
  * 包含：XML智能匹配、名称归一化、时间格式化等
+ * [优化] 将正则表达式提取为模块级常量，避免在循环中重复创建，提升处理大文件时的性能
  */
+
+// === 正则常量定义 (预编译) ===
+// 匹配频道信息的通用正则
+const CHANNEL_REGEX = /<channel id="([^"]+)">[\s\S]*?<display-name[^>]*>([^<]+)<\/display-name>[\s\S]*?(?:<icon src="([^"]+)" \/>)?[\s\S]*?<\/channel>/g;
+// 匹配节目信息的特定属性正则
+const PROG_START_REGEX = /start="([^"]+)"/;
+const PROG_STOP_REGEX = /stop="([^"]+)"/;
+const PROG_TITLE_REGEX = /<title[^>]*>([\s\S]*?)<\/title>/;
+const PROG_DESC_REGEX = /<desc[^>]*>([\s\S]*?)<\/desc>/;
+// 匹配 CDATA 标记
+const CDATA_REGEX = /<!\[CDATA\[([\s\S]*?)\]\]>/gi;
+// 归一化清理正则
+const NORMALIZE_REGEX = /[\s\-_]/g;
 
 export function smartFind(xml, userChannelName, targetDateStr, originUrl, currentPath = '/epg/diyp') {
   // 1. 获取频道信息（ID, Name, Icon）
@@ -21,20 +36,25 @@ export function smartFind(xml, userChannelName, targetDateStr, originUrl, curren
  */
 function findChannelInfo(xml, userChannelName) {
   const normalizedInput = normalizeName(userChannelName);
+  // 转义正则特殊字符
   const escapedName = userChannelName.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   
   // --- 阶段 A: 极速精确匹配 (Fast Path) ---
   try {
+    // 构造精确匹配正则 (这里必须动态构造，因为包含变量)
     const exactRegex = new RegExp(`<display-name[^>]*>\\s*${escapedName}\\s*<\\/display-name>`, 'i');
     const exactMatch = xml.match(exactRegex);
 
     if (exactMatch) {
       const nameIndex = exactMatch.index;
+      // 向前查找最近的 <channel 标签
       const channelStartIndex = xml.lastIndexOf('<channel', nameIndex);
       
       if (channelStartIndex !== -1) {
+        // 向后查找闭合标签
         const channelEndIndex = xml.indexOf('</channel>', nameIndex);
         if (channelEndIndex !== -1) {
+          // 截取频道片段进行解析
           const channelBlock = xml.substring(channelStartIndex, channelEndIndex + 10);
           const idMatch = channelBlock.match(/id="([^"]+)"/);
           const iconMatch = channelBlock.match(/<icon src="([^"]+)"/);
@@ -54,12 +74,14 @@ function findChannelInfo(xml, userChannelName) {
   }
 
   // --- 阶段 B: 全量遍历模糊匹配 (Slow Path) ---
-  const channelRegex = /<channel id="([^"]+)">[\s\S]*?<display-name[^>]*>([^<]+)<\/display-name>[\s\S]*?(?:<icon src="([^"]+)" \/>)?[\s\S]*?<\/channel>/g;
+  // 重置正则索引，确保从头开始
+  CHANNEL_REGEX.lastIndex = 0;
   let match;
 
-  while ((match = channelRegex.exec(xml)) !== null) {
+  // 使用 while 循环遍历所有频道
+  while ((match = CHANNEL_REGEX.exec(xml)) !== null) {
     const nameInXml = match[2];
-    
+    // 归一化比较
     if (normalizeName(nameInXml) === normalizedInput) {
       return {
         id: match[1],
@@ -80,21 +102,25 @@ function extractPrograms(xml, channelInfo, targetDateStr, originUrl, currentPath
   const targetDateCompact = targetDateStr.replace(/-/g, '');
   const channelAttr = `channel="${channelInfo.id}"`;
   
-  // 使用 indexOf 快速定位节目单
+  // 使用 indexOf 快速定位节目单 (比正则快很多)
   let pos = xml.indexOf(channelAttr);
   while (pos !== -1) {
+    // 向前找开始标签，向后找结束标签
     const startTagIndex = xml.lastIndexOf('<programme', pos);
     const endTagIndex = xml.indexOf('</programme>', pos);
 
     if (startTagIndex !== -1 && endTagIndex !== -1) {
+      // 截取单个节目片段
       const progStr = xml.substring(startTagIndex, endTagIndex + 12);
-      const startMatch = progStr.match(/start="([^"]+)"/);
       
-      // 匹配日期
+      // [优化] 使用预编译的常量正则进行匹配
+      const startMatch = progStr.match(PROG_START_REGEX);
+      
+      // 匹配日期 (利用字符串前缀匹配，避免解析整个日期)
       if (startMatch && startMatch[1].startsWith(targetDateCompact)) {
-        const stopMatch = progStr.match(/stop="([^"]+)"/);
-        const titleMatch = progStr.match(/<title[^>]*>([\s\S]*?)<\/title>/); // 优化正则以支持换行
-        const descMatch = progStr.match(/<desc[^>]*>([\s\S]*?)<\/desc>/); // 确保捕获 desc
+        const stopMatch = progStr.match(PROG_STOP_REGEX);
+        const titleMatch = progStr.match(PROG_TITLE_REGEX);
+        const descMatch = progStr.match(PROG_DESC_REGEX);
 
         programs.push({
           start: formatTime(startMatch[1]),
@@ -105,6 +131,7 @@ function extractPrograms(xml, channelInfo, targetDateStr, originUrl, currentPath
         });
       }
     }
+    // 继续查找下一个
     pos = xml.indexOf(channelAttr, pos + 1);
   }
 
@@ -125,19 +152,18 @@ function extractPrograms(xml, channelInfo, targetDateStr, originUrl, currentPath
 
 /**
  * 清洗 XML 内容：去除 CDATA 标签，去除首尾空格
- * 很多 EPG 的 desc 包含 <![CDATA[...]]>，如果不去除，播放器可能不显示
  */
 function cleanContent(str) {
   if (!str) return "";
-  return str.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/gi, '$1').trim();
+  // [优化] 使用常量正则
+  return str.replace(CDATA_REGEX, '$1').trim();
 }
 
 export function normalizeName(name) {
   if (!name) return "";
+  // [优化] 使用常量正则
   // 核心模糊匹配：转大写，移除空格、横线、下划线
-  // 注意：保留了 "+" 号，因此 "CCTV5" 和 "CCTV5+" 会被视为不同频道，满足精确性要求
-  // "CCTV-1" -> "CCTV1", "CCTV 1" -> "CCTV1"
-  return name.trim().toUpperCase().replace(/[\s\-_]/g, '');
+  return name.trim().toUpperCase().replace(NORMALIZE_REGEX, '');
 }
 
 export function formatTime(raw) {
@@ -153,8 +179,6 @@ export function isGzipContent(headers, urlStr) {
   const type = headers.get('content-type') || '';
   if (type.includes('application/gzip') || type.includes('application/x-gzip')) return true;
 
-  // 3. 注意：不检测 Content-Encoding。
-  // 因为 Cloudflare Worker 的 fetch 会自动处理 Transport Layer 的解压。
-  // 如果源是 XML 但传输用了 gzip，fetch 拿到的 body 已经是解压后的文本，我们不应该再次解压。
+  // 3. 不检测 Content-Encoding (Cloudflare 会自动解压传输层 gzip)
   return false;
 }
