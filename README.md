@@ -59,16 +59,35 @@
    docker pull ghcr.io/gujiangjiang/cf-worker-epg:latest
    ```
 
-2. **运行容器**：
+2. **运行容器 (Docker CLI)**：
    ```bash
    docker run -d \
      --name epg-proxy \
+     --restart unless-stopped \
      -p 8787:8787 \
      -e EPG_URL="http://example.com/e.xml" \
      -e EPG_URL_BACKUP="http://example.com/backup.xml" \
      -e CACHE_TTL=300 \
      ghcr.io/gujiangjiang/cf-worker-epg:latest
    ```
+
+   **或者使用 Docker Compose (推荐)**：
+   创建 `docker-compose.yml` 文件并填入以下内容：
+   ```yaml
+   version: '3'
+   services:
+     epg-proxy:
+       image: ghcr.io/gujiangjiang/cf-worker-epg:latest
+       container_name: epg-proxy
+       restart: unless-stopped
+       ports:
+         - "8787:8787"
+       environment:
+         - EPG_URL=http://example.com/e.xml
+         - EPG_URL_BACKUP=http://example.com/backup.xml
+         - CACHE_TTL=300
+   ```
+   然后运行：`docker-compose up -d`
 
 3. **访问服务**：
    - 首页：`http://localhost:8787`
