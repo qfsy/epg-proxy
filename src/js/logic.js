@@ -2,17 +2,18 @@
 /**
  * 核心业务逻辑模块
  * 处理 EPG 下载、流式传输、缓存以及 DIYP 接口逻辑
- * [优化] 统一 CORS 头，减少冗余代码
+ * [优化] 导出 CORS_HEADERS 供 index.js 复用
  */
 
 import { smartFind, isGzipContent } from './utils.js';
 
 const DEFAULT_CACHE_TTL = 300; // 默认缓存 5 分钟
 
-// [优化] 提取通用 CORS 头
-const CORS_HEADERS = {
+// [优化] 导出常量，供 index.js 处理 OPTIONS 请求时使用
+export const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type', // 补充常用头
 };
 
 // =========================================================
@@ -88,7 +89,7 @@ export async function handleDownload(ctx, targetFormat, sourceUrl, env) {
     headers: {
       "Content-Type": contentType,
       "Cache-Control": `public, max-age=${cacheTtl}`,
-      ...CORS_HEADERS // [优化] 使用扩展运算符注入 CORS 头
+      ...CORS_HEADERS // 复用导出常量
     }
   });
 }

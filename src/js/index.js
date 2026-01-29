@@ -1,46 +1,61 @@
+// 文件路径: src/js/index.js
 /**
  * EPG Proxy Server (模块化重构版)
- * * 入口文件：负责路由分发与环境检查
+ * 入口文件：负责路由分发与环境检查
+ * [优化] 增加全局 OPTIONS 处理和路由路径归一化
  */
 
-// 路径调整：logic.js 在同级目录，templates.js 在上级目录的 front 文件夹中
-import { handleDiyp, handleDownload } from './logic.js';
+// 引入 CORS_HEADERS 常量
+import { handleDiyp, handleDownload, CORS_HEADERS } from './logic.js';
 import { getSetupGuideHTML, getUsageHTML } from '../front/templates.js';
 
 export default {
   async fetch(request, env, ctx) {
+    // [优化] 全局处理 CORS 预检请求 (OPTIONS)
+    // 浏览器在跨域请求前会发送 OPTIONS，必须直接返回 200 和 CORS 头
+    if (request.method === 'OPTIONS') {
+      return new Response(null, {
+        status: 200,
+        headers: CORS_HEADERS
+      });
+    }
+
     const url = new URL(request.url);
 
     // 1. 检查是否配置了主 EPG_URL
-    // 如果未配置，直接返回美化后的引导页面
     if (!env.EPG_URL) {
       return new Response(getSetupGuideHTML(), {
         headers: { "Content-Type": "text/html; charset=utf-8" },
       });
     }
 
+    // [优化] 路径归一化：移除末尾的斜杠，避免 "/epg/diyp/" 无法匹配的问题
+    // 如果路径是 "/" 则保持不变，否则移除末尾斜杠
+    const normalizedPath = url.pathname.endsWith('/') && url.pathname.length > 1 
+      ? url.pathname.slice(0, -1) 
+      : url.pathname;
+
     try {
       // 2. 路由分发
-      switch (url.pathname) {
-        // DIYP 接口 (标准)
+      switch (normalizedPath) {
+        // DIYP 接口
         case '/epg/diyp':
           return handleDiyp(request, url, ctx, env);
 
-        // 超级直播接口 (新增支持)
-        // 很多超级直播源默认寻找 /epginfo 路径，且 JSON 结构与 DIYP 通用
+        // 超级直播接口
         case '/epg/epginfo':
           return handleDiyp(request, url, ctx, env);
           
         case '/epg/epg.xml':
-          // XML 下载：仅使用主源
+          // XML 下载
           return handleDownload(ctx, 'xml', env.EPG_URL, env);
           
         case '/epg/epg.xml.gz':
-          // GZ 下载：仅使用主源
+          // GZ 下载
           return handleDownload(ctx, 'gz', env.EPG_URL, env);
           
         default:
-          // 默认首页：显示运行状态和使用说明
+          // 默认首页
           return new Response(getUsageHTML(request.url), {
              headers: { "Content-Type": "text/html; charset=utf-8" }
           });
