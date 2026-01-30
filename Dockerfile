@@ -21,7 +21,7 @@ COPY docker-entrypoint.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 # [安全优化] 修复权限并切换到非 root 用户
-# 将 /app 目录的所有权赋予 node 用户，确保 npm/wrangler 可以写入
+# 确保 node 用户拥有 /app 目录（包含 node_modules）的读写权限
 RUN chown -R node:node /app
 
 # 切换到 node 用户
@@ -37,7 +37,7 @@ EXPOSE 8787
 # 设置入口点
 ENTRYPOINT ["docker-entrypoint.sh"]
 
-# 默认启动命令：使用 wrangler dev 监听所有接口
-# --host 0.0.0.0: 允许外部访问
-# --port 8787: 固定端口
-CMD ["npx", "wrangler", "dev", "--host", "0.0.0.0", "--port", "8787"]
+# [v2.5 修复] 启动命令
+# 修正参数：使用 --ip 0.0.0.0 强制监听所有网卡
+# 注意：wrangler v3 使用 --ip 而非 --host
+CMD ["npx", "wrangler", "dev", "--ip", "0.0.0.0", "--port", "8787"]
