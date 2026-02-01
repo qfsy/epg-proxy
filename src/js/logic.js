@@ -4,6 +4,7 @@
  * 处理 EPG 下载、流式传输、缓存以及 DIYP 接口逻辑
  * [v2.9 配置增强] 支持通过环境变量配置核心参数 (超时、缓存大小、熔断时间等)
  * [v3.0 状态增强] 导出数据源更新时间供前端显示
+ * [v3.1 修复] 即使请求失败也记录最后尝试时间，以便前端展示状态
  */
 
 import { smartFind, isGzipContent } from './utils.js';
@@ -17,7 +18,7 @@ const DEFAULT_ERROR_COOLDOWN = 2 * 60 * 1000;      // 默认熔断冷却 2 分�
 
 // [全局内存缓存]
 // Key: Source URL
-// Value: { text, expireTime, fetchTime, lastErrorTime }
+// Value: { text, expireTime, fetchTime, lastErrorTime, errorMsg }
 const MEMORY_CACHE_MAP = new Map();
 
 // [并发优化] 进行中的请求队列
@@ -62,11 +63,11 @@ export async function getSourceStream(ctx, targetUrl, env) {
     const originRes = await fetch(targetUrl, { signal: controller.signal });
     clearTimeout(timeoutId);
 
-    if (!originRes.ok) throw new Error(`Source fetch failed: ${originRes.status}`);
+    if (!originRes.ok) throw new Error(`Status ${originRes.status}`);
 
     const contentLength = originRes.headers.get("content-length");
     if (contentLength && parseInt(contentLength) > maxSourceSize) {
-        throw new Error(`Source too large (${contentLength} bytes), limit is ${maxSourceSize}`);
+        throw new Error(`Too large (${contentLength} bytes)`);
     }
 
     if (cache) {
@@ -94,7 +95,7 @@ export async function getSourceStream(ctx, targetUrl, env) {
   } catch (err) {
     clearTimeout(timeoutId);
     if (err.name === 'AbortError') {
-        throw new Error(`Source fetch timed out after ${fetchTimeout}ms`);
+        throw new Error(`Timeout (${fetchTimeout}ms)`);
     }
     throw err;
   }
@@ -218,7 +219,11 @@ async function fetchAndFind(ctx, sourceUrl, ch, date, originUrl, env, currentPat
     const elapsed = now - cachedItem.lastErrorTime;
     if (elapsed < errorCooldown) {
       console.warn(`[Circuit Breaker] Source in cooldown (${Math.floor(elapsed/1000)}s / ${errorCooldown/1000}s).`);
-      return smartFind(cachedItem.text, ch, date, originUrl, currentPath);
+      // 如果有旧文本，即使在冷却期也尝试用旧的匹配
+      if (cachedItem.text) {
+          return smartFind(cachedItem.text, ch, date, originUrl, currentPath);
+      }
+      return { programs: [], response: {} };
     }
   }
 
@@ -267,7 +272,8 @@ async function fetchAndFind(ctx, sourceUrl, ch, date, originUrl, env, currentPat
             text: xmlText,
             expireTime: now + (cacheTtl * 1000),
             fetchTime: now,
-            lastErrorTime: 0
+            lastErrorTime: 0,
+            errorMsg: null // 成功清除错误
         });
         console.log(`[Memory] Updated ${xmlText.length} chars. TTL: ${cacheTtl}s`);
     }
@@ -277,12 +283,20 @@ async function fetchAndFind(ctx, sourceUrl, ch, date, originUrl, env, currentPat
   } catch (e) {
     console.error(`[Fetch Failed] Source: ${sourceUrl}, Error: ${e.message}`);
     
+    // --- [v3.1 修复] 记录失败状态到内存 ---
+    // 即使失败，也更新 Map，以便首页能显示 "更新失败: Timeout"
+    const existing = MEMORY_CACHE_MAP.get(sourceUrl) || {};
+    MEMORY_CACHE_MAP.set(sourceUrl, {
+        ...existing,
+        lastErrorTime: now,
+        fetchTime: now, // 记录这次尝试的时间
+        errorMsg: e.message
+    });
+    
     // --- 阶段 E: 失败兜底逻辑 ---
-    if (cachedItem && cachedItem.text) {
+    if (existing && existing.text) {
         console.warn(`[Stale-If-Error] Serving EXPIRED data.`);
-        cachedItem.lastErrorTime = now;
-        MEMORY_CACHE_MAP.set(sourceUrl, cachedItem);
-        return smartFind(cachedItem.text, ch, date, originUrl, currentPath);
+        return smartFind(existing.text, ch, date, originUrl, currentPath);
     }
 
     return { programs: [], response: {} };
@@ -292,7 +306,7 @@ async function fetchAndFind(ctx, sourceUrl, ch, date, originUrl, env, currentPat
 }
 
 /**
- * 获取数据源最后更新时间 (v3.0 新增)
+ * 获取数据源最后更新时间 (v3.0 新增, v3.1 增强错误显示)
  * 供前端展示使用，直接读取内存中的 fetchTime
  */
 export function getLastUpdateTimes(env) {
@@ -314,20 +328,22 @@ export function getLastUpdateTimes(env) {
     });
   };
 
-  const getMainTime = () => {
-     const item = MEMORY_CACHE_MAP.get(mainUrl);
-     // 如果有缓存对象，且有 fetchTime，则返回
-     return item ? formatTime(item.fetchTime) : "等待首次请求";
-  };
-
-  const getBackupTime = () => {
-     if (!backupUrl) return null;
-     const item = MEMORY_CACHE_MAP.get(backupUrl);
-     return item ? formatTime(item.fetchTime) : "等待调用";
+  const getStatus = (url) => {
+     if (!url) return null;
+     const item = MEMORY_CACHE_MAP.get(url);
+     if (!item) return "等待调用";
+     
+     const timeStr = formatTime(item.fetchTime);
+     
+     // [v3.1] 如果有错误信息，显示红色错误
+     if (item.errorMsg) {
+         return `${timeStr} <span style="color:red;font-size:0.8em">(${item.errorMsg})</span>`;
+     }
+     return `${timeStr} <span style="color:green;font-size:0.8em">(OK)</span>`;
   };
 
   return {
-    main: getMainTime(),
-    backup: getBackupTime()
+    main: getStatus(mainUrl),
+    backup: getStatus(backupUrl)
   };
 }

@@ -72,6 +72,8 @@ export function getSetupGuideHTML() {
  * [v3.0 更新] 
  * 1. 接收 env 参数以判断是否有备用源
  * 2. 接收 updateTimes 参数以显示最近更新时间
+ * [v3.1 更新]
+ * 1. 增加内存易失性提示
  */
 export function getUsageHTML(baseUrl, env, updateTimes) {
   // 获取当前北京时间
@@ -106,7 +108,7 @@ export function getUsageHTML(baseUrl, env, updateTimes) {
   // [v3.0] 构造状态看板 HTML
   let statusPanelHTML = `
     <div class="status-panel">
-      <span class="status-title">数据源更新时间</span>
+      <span class="status-title">数据源状态 (边缘缓存)</span>
       <div class="status-row">
         <span class="status-label">主源</span>
         <span class="status-value">${updateTimes.main}</span>
@@ -119,7 +121,13 @@ export function getUsageHTML(baseUrl, env, updateTimes) {
         <span class="status-value">${updateTimes.backup}</span>
       </div>`;
   }
-  statusPanelHTML += `</div>`;
+  
+  // [v3.1] 增加易失性提示
+  statusPanelHTML += `
+      <div style="margin-top:8px; font-size:0.7rem; color:#94a3b8; border-top:1px dashed var(--border); padding-top:4px;">
+        * 状态仅保存在当前节点内存中<br>Worker 闲置/重启后会重置
+      </div>
+    </div>`;
 
   const title = "EPG Proxy 服务运行中";
   const content = `
