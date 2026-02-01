@@ -5,9 +5,19 @@ compatibility_date = "2024-01-29"
 # 观察性配置 (可选)
 # send_metrics = false
 
-# 环境变量配置说明：
-# 处于安全考虑，建议不要将敏感的 EPG_URL 直接写在这里提交到 GitHub。
-# 请在 Cloudflare Dashboard 的 Worker -> Settings -> Variables 中配置。
-# 如果非要写在这里，格式如下：
+# ===========================================================
+# 环境变量配置说明
+# (Cloudflare Dashboard -> Worker -> Settings -> Variables)
+# ===========================================================
+
+# [必填项]
+# EPG_URL = "https://example.com/file.xml"  # 主 EPG 源地址
+
+# [可选项] (以下均为默认值，如需修改请在 Dashboard 添加同名变量)
 # [vars]
-# EPG_URL = "https://example.com/file.xml"
+# EPG_URL_BACKUP = ""                  # 备用源地址，主源失败时使用
+# CACHE_TTL = "3600"                   # 缓存时间 (秒)，默认 1 小时
+# FETCH_TIMEOUT = "20000"              # 上游请求超时 (毫秒)，默认 20 秒
+# MAX_MEMORY_CACHE_CHARS = "41943040"  # 内存缓存上限 (字符数)，40M字符 ≈ 80MB，默认 40*1024*1024
+# MAX_SOURCE_SIZE_BYTES = "157286400"  # 最大源文件大小 (字节)，默认 150MB
+# ERROR_COOLDOWN_MS = "120000"         # 错误熔断冷却时间 (毫秒)，默认 2 分钟

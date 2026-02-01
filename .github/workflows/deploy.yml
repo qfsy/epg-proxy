@@ -89,14 +89,19 @@ jobs:
             echo "has_epg=true" >> $GITHUB_ENV
           fi
 
-      # 第六步：动态生成密钥列表 (Fix: 解决非必填项报错问题)
-      # 只有当变量真实存在时，才将其加入到 secrets 列表中
+      # 第六步：动态生成密钥列表
+      # 说明：为了支持可选变量，我们需要动态生成传递给 wrangler 的 secrets 列表
+      # 如果某个 secret 未在 GitHub 设置，则不应包含在列表中，否则部署会报错
       - name: Generate Secret List
         id: secret_gen
         # 将 secret 映射到 env，以便在脚本中安全判断
         env:
           EPG_URL_BACKUP: ${{ secrets.EPG_URL_BACKUP }}
           CACHE_TTL: ${{ secrets.CACHE_TTL }}
+          FETCH_TIMEOUT: ${{ secrets.FETCH_TIMEOUT }}
+          MAX_MEMORY_CACHE_CHARS: ${{ secrets.MAX_MEMORY_CACHE_CHARS }}
+          MAX_SOURCE_SIZE_BYTES: ${{ secrets.MAX_SOURCE_SIZE_BYTES }}
+          ERROR_COOLDOWN_MS: ${{ secrets.ERROR_COOLDOWN_MS }}
         run: |
           # 开始构建列表，EPG_URL 是必填项，一定包含
           # 使用 EOF 块写入 GITHUB_OUTPUT，支持多行
@@ -104,15 +109,13 @@ jobs:
             echo "list<<EOF"
             echo "EPG_URL"
             
-            # 如果 EPG_URL_BACKUP 不为空，则加入列表
-            if [ -n "$EPG_URL_BACKUP" ]; then
-              echo "EPG_URL_BACKUP"
-            fi
-            
-            # 如果 CACHE_TTL 不为空，则加入列表
-            if [ -n "$CACHE_TTL" ]; then
-              echo "CACHE_TTL"
-            fi
+            # 循环检查可选变量，如果不为空则加入列表
+            if [ -n "$EPG_URL_BACKUP" ]; then echo "EPG_URL_BACKUP"; fi
+            if [ -n "$CACHE_TTL" ]; then echo "CACHE_TTL"; fi
+            if [ -n "$FETCH_TIMEOUT" ]; then echo "FETCH_TIMEOUT"; fi
+            if [ -n "$MAX_MEMORY_CACHE_CHARS" ]; then echo "MAX_MEMORY_CACHE_CHARS"; fi
+            if [ -n "$MAX_SOURCE_SIZE_BYTES" ]; then echo "MAX_SOURCE_SIZE_BYTES"; fi
+            if [ -n "$ERROR_COOLDOWN_MS" ]; then echo "ERROR_COOLDOWN_MS"; fi
             
             echo "EOF"
           } >> $GITHUB_OUTPUT
@@ -125,11 +128,14 @@ jobs:
         with:
           apiToken: ${{ secrets.CF_API_TOKEN }}
           accountId: ${{ secrets.CF_ACCOUNT_ID }}
-          # 关键修改：使用上一步动态生成的列表，而不是硬编码
+          # 使用上一步动态生成的列表
           secrets: ${{ steps.secret_gen.outputs.list }}
         env:
-          # 依然需要在此处映射所有可能用到的环境变量
-          # 即使值为空也没关系，因为 wrangler 只有在 secrets 列表中声明了才会去读取
+          # 必须在此处再次映射所有可能的 Secrets，wrangler 才能真正读取到值
           EPG_URL: ${{ secrets.EPG_URL }}
           EPG_URL_BACKUP: ${{ secrets.EPG_URL_BACKUP }}
           CACHE_TTL: ${{ secrets.CACHE_TTL }}
+          FETCH_TIMEOUT: ${{ secrets.FETCH_TIMEOUT }}
+          MAX_MEMORY_CACHE_CHARS: ${{ secrets.MAX_MEMORY_CACHE_CHARS }}
+          MAX_SOURCE_SIZE_BYTES: ${{ secrets.MAX_SOURCE_SIZE_BYTES }}
+          ERROR_COOLDOWN_MS: ${{ secrets.ERROR_COOLDOWN_MS }}
