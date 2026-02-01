@@ -1,13 +1,13 @@
 // 文件路径: src/front/templates.js
 /**
  * 页面内容模板模块
- * 专注于生成具体页面的 HTML 内容结构，不再包含 CSS/JS 实现细节
+ * [v3.3 更新] 文案通用化，适配 Docker 和 Cloudflare 双环境
  */
 
 import { renderPage } from './layout.js';
 
 /**
- * 生成配置引导页面 (当未配置环境变量时显示)
+ * 生成配置引导页面
  */
 export function getSetupGuideHTML() {
   const title = "服务未配置 - EPG Proxy";
@@ -68,12 +68,8 @@ export function getSetupGuideHTML() {
 }
 
 /**
- * 生成使用说明页面 (服务正常运行时的主页)
- * [v3.0 更新] 
- * 1. 接收 env 参数以判断是否有备用源
- * 2. 接收 updateTimes 参数以显示最近更新时间
- * [v3.2 更新]
- * 1. 更新底部注释，解释 RAM 和 Cache 的区别
+ * 生成使用说明页面 (主页)
+ * [v3.3] 优化状态面板文案，去除 "Edge Cache" 这种 Cloudflare 专用术语
  */
 export function getUsageHTML(baseUrl, env, updateTimes) {
   // 获取当前北京时间
@@ -105,10 +101,10 @@ export function getUsageHTML(baseUrl, env, updateTimes) {
 
   const downloadNote = hasBackup ? "（仅主源）" : "";
 
-  // [v3.0] 构造状态看板 HTML
+  // [v3.3] 通用化状态面板，不再强调“边缘缓存”
   let statusPanelHTML = `
     <div class="status-panel">
-      <span class="status-title">数据源状态 (边缘缓存)</span>
+      <span class="status-title">数据源状态 (Source Status)</span>
       <div class="status-row">
         <span class="status-label">主源</span>
         <span class="status-value">${updateTimes.main}</span>
@@ -122,12 +118,11 @@ export function getUsageHTML(baseUrl, env, updateTimes) {
       </div>`;
   }
   
-  // [v3.2] 增加持久化提示
+  // [v3.3] 通用化注释，解释两种状态来源
   statusPanelHTML += `
       <div style="margin-top:8px; font-size:0.7rem; color:#94a3b8; border-top:1px dashed var(--border); padding-top:4px;">
-        * RAM: 当前节点内存 (实时)<br>
-        * Cache: 边缘缓存 (持久)<br>
-        * 错误状态仅在 RAM 中暂存
+        * Memory: 当前节点内存 (Docker/Worker)<br>
+        * Edge Cache: 持久化缓存 (仅 Cloudflare)<br>
       </div>
     </div>`;
 

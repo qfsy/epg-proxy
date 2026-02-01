@@ -2,10 +2,9 @@
 /**
  * 核心业务逻辑模块
  * 处理 EPG 下载、流式传输、缓存以及 DIYP 接口逻辑
- * [v2.9 配置增强] 支持通过环境变量配置核心参数 (超时、缓存大小、熔断时间等)
  * [v3.0 状态增强] 导出数据源更新时间供前端显示
- * [v3.1 修复] 即使请求失败也记录最后尝试时间，以便前端展示状态
- * [v3.2 优化] 利用 Cache API 持久化更新时间，解决 Worker 切换导致的显示闪烁
+ * [v3.2 优化] 利用 Cache API 持久化更新时间
+ * [v3.3 适配] 优化 Docker/CF 双环境适配，区分 Memory/Cache 标签
  */
 
 import { smartFind, isGzipContent } from './utils.js';
@@ -41,6 +40,7 @@ export async function getSourceStream(ctx, targetUrl, env) {
   const fetchTimeout = parseInt(env.FETCH_TIMEOUT) || DEFAULT_FETCH_TIMEOUT;
   const maxSourceSize = parseInt(env.MAX_SOURCE_SIZE_BYTES) || DEFAULT_MAX_SOURCE_SIZE;
 
+  // 兼容性检测：Docker 环境下 caches 通常不存在
   const cache = (typeof caches !== 'undefined') ? caches.default : null;
   const cacheKey = new Request(targetUrl, { method: "GET" });
   
@@ -80,7 +80,7 @@ export async function getSourceStream(ctx, targetUrl, env) {
       });
       responseToCache.headers.set("Cache-Control", `public, max-age=${cacheTtl}`);
       
-      // [v3.2] 将更新时间写入缓存头，实现跨实例持久化
+      // [v3.2] 将更新时间写入缓存头 (仅 Cloudflare 有效)
       responseToCache.headers.set("X-EPG-Fetch-Time", Date.now().toString());
 
       ctx.waitUntil(cache.put(cacheKey, responseToCache));
@@ -311,8 +311,7 @@ async function fetchAndFind(ctx, sourceUrl, ch, date, originUrl, env, currentPat
 }
 
 /**
- * 获取数据源最后更新时间 (v3.2 优化：RAM + Cache 双重检查)
- * 供前端展示使用，优先读取内存，内存缺失时尝试读取缓存头
+ * 获取数据源最后更新时间 (v3.3 优化：RAM + Cache 双重适配)
  */
 export async function getLastUpdateTimes(env) {
   const mainUrl = env.EPG_URL;
@@ -337,31 +336,32 @@ export async function getLastUpdateTimes(env) {
   const getStatus = async (url) => {
      if (!url) return null;
      
-     // 1. 优先检查内存 (RAM)
-     // 内存中的数据最准确，包含最新的错误信息
+     // 1. 优先检查内存 (Docker 只有这一步，Cloudflare 优先这一步)
+     // Memory 是最实时的，包含错误信息
      const item = MEMORY_CACHE_MAP.get(url);
      if (item) {
          const timeStr = formatTime(item.fetchTime);
          if (item.errorMsg) {
              return `${timeStr} <span style="color:red;font-size:0.8em">(${item.errorMsg})</span>`;
          }
-         return `${timeStr} <span style="color:green;font-size:0.8em">(RAM)</span>`;
+         // [v3.3] 明确标识这是内存数据
+         return `${timeStr} <span style="color:green;font-size:0.8em">(Memory)</span>`;
      }
 
-     // 2. 内存没有，检查 Cache API (持久层)
-     // 如果当前是新启动的 Worker 实例，尝试从 Cloudflare 缓存头中恢复上次更新时间
+     // 2. 内存没有，尝试检查 Cache API (仅 Cloudflare 有效)
+     // 解决 Worker 重启导致的显示闪烁问题
      if (cache) {
          try {
              const cachedRes = await cache.match(new Request(url, { method: "GET" }));
              if (cachedRes) {
                  const ts = cachedRes.headers.get("X-EPG-Fetch-Time");
                  if (ts) {
-                     // 只有成功的请求才会写入缓存头，所以这里必然是成功的
-                     return `${formatTime(parseInt(ts))} <span style="color:green;font-size:0.8em">(Cache)</span>`;
+                     // [v3.3] 明确标识这是持久化缓存数据
+                     return `${formatTime(parseInt(ts))} <span style="color:green;font-size:0.8em">(Edge Cache)</span>`;
                  }
              }
          } catch (e) {
-             // 忽略缓存读取错误
+             // 忽略错误
          }
      }
      
