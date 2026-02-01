@@ -169,8 +169,23 @@ export async function handleDiyp(request, url, ctx, env) {
 
   const ch = url.searchParams.get('ch') || url.searchParams.get('channel') || url.searchParams.get('id');
   const date = url.searchParams.get('date');
-  const currentPath = url.pathname; 
+  const currentPath = url.pathname;
+  
+  if (date) {
+    const m = date.match(/^DATE(\d+)SUB$/i);
+    if (m) {
+      const subDays = parseInt(m[1], 10);
+      const d = new Date();
+      d.setDate(d.getDate() - subDays);
 
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
+
+      date = `${yyyy}-${mm}-${dd}`;
+    }
+  }
+  
   if (!ch || !date) {
     return new Response(JSON.stringify({ code: 400, message: "Missing params: ch (or channel/id) or date" }), {
       headers: { 'content-type': 'application/json', ...CORS_HEADERS }
