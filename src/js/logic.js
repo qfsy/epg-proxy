@@ -5,6 +5,7 @@
  * [v3.0 状态增强] 导出数据源更新时间供前端显示
  * [v3.2 优化] 利用 Cache API 持久化更新时间
  * [v3.3 适配] 优化 Docker/CF 双环境适配，区分 Memory/Cache 标签
+ * [v3.4 修复] 移除 Cache 的 Vary 头，解决不同浏览器下状态显示不一致的问题
  */
 
 import { smartFind, isGzipContent } from './utils.js';
@@ -73,12 +74,20 @@ export async function getSourceStream(ctx, targetUrl, env) {
 
     if (cache) {
       const [streamForCache, streamForUse] = originRes.body.tee();
+      
+      // [关键修复 v3.4] 重构响应头，移除 Vary 和 Set-Cookie
+      // 防止因上游返回 Vary: User-Agent 导致不同浏览器无法命中同一个缓存
       const responseToCache = new Response(streamForCache, {
         headers: originRes.headers,
         status: originRes.status,
         statusText: originRes.statusText
       });
+      
       responseToCache.headers.set("Cache-Control", `public, max-age=${cacheTtl}`);
+      // 强制移除 Vary 头，确保缓存对所有客户端（包括内部状态检查请求）通用
+      responseToCache.headers.delete("Vary");
+      // 移除 Cookie，避免缓存用户敏感信息，也能增加缓存命中率
+      responseToCache.headers.delete("Set-Cookie");
       
       // [v3.2] 将更新时间写入缓存头 (仅 Cloudflare 有效)
       responseToCache.headers.set("X-EPG-Fetch-Time", Date.now().toString());
@@ -352,6 +361,7 @@ export async function getLastUpdateTimes(env) {
      // 解决 Worker 重启导致的显示闪烁问题
      if (cache) {
          try {
+             // [v3.4 Note] 由于写入时去除了 Vary 头，这里直接用 url 匹配应能命中
              const cachedRes = await cache.match(new Request(url, { method: "GET" }));
              if (cachedRes) {
                  const ts = cachedRes.headers.get("X-EPG-Fetch-Time");
