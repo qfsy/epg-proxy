@@ -5,6 +5,7 @@
  * [v2.9 配置增强] 支持通过环境变量配置核心参数 (超时、缓存大小、熔断时间等)
  * [v3.0 状态增强] 导出数据源更新时间供前端显示
  * [v3.1 修复] 即使请求失败也记录最后尝试时间，以便前端展示状态
+ * [v3.2 优化] 利用 Cache API 持久化更新时间，解决 Worker 切换导致的显示闪烁
  */
 
 import { smartFind, isGzipContent } from './utils.js';
@@ -78,6 +79,10 @@ export async function getSourceStream(ctx, targetUrl, env) {
         statusText: originRes.statusText
       });
       responseToCache.headers.set("Cache-Control", `public, max-age=${cacheTtl}`);
+      
+      // [v3.2] 将更新时间写入缓存头，实现跨实例持久化
+      responseToCache.headers.set("X-EPG-Fetch-Time", Date.now().toString());
+
       ctx.waitUntil(cache.put(cacheKey, responseToCache));
 
       return {
@@ -306,12 +311,13 @@ async function fetchAndFind(ctx, sourceUrl, ch, date, originUrl, env, currentPat
 }
 
 /**
- * 获取数据源最后更新时间 (v3.0 新增, v3.1 增强错误显示)
- * 供前端展示使用，直接读取内存中的 fetchTime
+ * 获取数据源最后更新时间 (v3.2 优化：RAM + Cache 双重检查)
+ * 供前端展示使用，优先读取内存，内存缺失时尝试读取缓存头
  */
-export function getLastUpdateTimes(env) {
+export async function getLastUpdateTimes(env) {
   const mainUrl = env.EPG_URL;
   const backupUrl = env.EPG_URL_BACKUP;
+  const cache = (typeof caches !== 'undefined') ? caches.default : null;
 
   // 格式化时间戳为北京时间 (MM-DD HH:mm:ss)
   const formatTime = (ts) => {
@@ -328,22 +334,42 @@ export function getLastUpdateTimes(env) {
     });
   };
 
-  const getStatus = (url) => {
+  const getStatus = async (url) => {
      if (!url) return null;
+     
+     // 1. 优先检查内存 (RAM)
+     // 内存中的数据最准确，包含最新的错误信息
      const item = MEMORY_CACHE_MAP.get(url);
-     if (!item) return "等待调用";
-     
-     const timeStr = formatTime(item.fetchTime);
-     
-     // [v3.1] 如果有错误信息，显示红色错误
-     if (item.errorMsg) {
-         return `${timeStr} <span style="color:red;font-size:0.8em">(${item.errorMsg})</span>`;
+     if (item) {
+         const timeStr = formatTime(item.fetchTime);
+         if (item.errorMsg) {
+             return `${timeStr} <span style="color:red;font-size:0.8em">(${item.errorMsg})</span>`;
+         }
+         return `${timeStr} <span style="color:green;font-size:0.8em">(RAM)</span>`;
      }
-     return `${timeStr} <span style="color:green;font-size:0.8em">(OK)</span>`;
+
+     // 2. 内存没有，检查 Cache API (持久层)
+     // 如果当前是新启动的 Worker 实例，尝试从 Cloudflare 缓存头中恢复上次更新时间
+     if (cache) {
+         try {
+             const cachedRes = await cache.match(new Request(url, { method: "GET" }));
+             if (cachedRes) {
+                 const ts = cachedRes.headers.get("X-EPG-Fetch-Time");
+                 if (ts) {
+                     // 只有成功的请求才会写入缓存头，所以这里必然是成功的
+                     return `${formatTime(parseInt(ts))} <span style="color:green;font-size:0.8em">(Cache)</span>`;
+                 }
+             }
+         } catch (e) {
+             // 忽略缓存读取错误
+         }
+     }
+     
+     return "等待调用";
   };
 
   return {
-    main: getStatus(mainUrl),
-    backup: getStatus(backupUrl)
+    main: await getStatus(mainUrl),
+    backup: await getStatus(backupUrl)
   };
 }

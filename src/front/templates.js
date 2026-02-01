@@ -72,8 +72,8 @@ export function getSetupGuideHTML() {
  * [v3.0 更新] 
  * 1. 接收 env 参数以判断是否有备用源
  * 2. 接收 updateTimes 参数以显示最近更新时间
- * [v3.1 更新]
- * 1. 增加内存易失性提示
+ * [v3.2 更新]
+ * 1. 更新底部注释，解释 RAM 和 Cache 的区别
  */
 export function getUsageHTML(baseUrl, env, updateTimes) {
   // 获取当前北京时间
@@ -122,10 +122,12 @@ export function getUsageHTML(baseUrl, env, updateTimes) {
       </div>`;
   }
   
-  // [v3.1] 增加易失性提示
+  // [v3.2] 增加持久化提示
   statusPanelHTML += `
       <div style="margin-top:8px; font-size:0.7rem; color:#94a3b8; border-top:1px dashed var(--border); padding-top:4px;">
-        * 状态仅保存在当前节点内存中<br>Worker 闲置/重启后会重置
+        * RAM: 当前节点内存 (实时)<br>
+        * Cache: 边缘缓存 (持久)<br>
+        * 错误状态仅在 RAM 中暂存
       </div>
     </div>`;
 

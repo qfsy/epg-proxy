@@ -4,6 +4,7 @@
  * 入口文件：负责路由分发与环境检查
  * [优化] 增加全局 OPTIONS 处理和路由路径归一化
  * [v3.0] 引入 getLastUpdateTimes 以支持前端显示
+ * [v3.2] 改为异步获取状态
  */
 
 // 引入 CORS_HEADERS 常量和新的时间获取函数
@@ -56,7 +57,9 @@ export default {
         default:
           // 默认首页
           // [v3.0] 传递 env 和时间信息给前端模板
-          return new Response(getUsageHTML(request.url, env, getLastUpdateTimes(env)), {
+          // [v3.2] await 异步获取
+          const updateTimes = await getLastUpdateTimes(env);
+          return new Response(getUsageHTML(request.url, env, updateTimes), {
              headers: { "Content-Type": "text/html; charset=utf-8" }
           });
       }
