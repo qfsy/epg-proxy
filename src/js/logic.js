@@ -32,6 +32,21 @@ export const CORS_HEADERS = {
 };
 
 // =========================================================
+// 内部工具：安全读取 query 参数（保留 + 语义）
+// =========================================================
+function getRawQueryParam(url, ...names) {
+  const q = url.search.slice(1); // 去掉 '?'
+  for (const name of names) {
+    const m = q.match(new RegExp(`(?:^|&)${name}=([^&]*)`));
+    if (m) {
+      // 仅解码 %xx，不把 + 当空格
+      return decodeURIComponent(m[1].replace(/\+/g, '%2B'));
+    }
+  }
+  return null;
+}
+
+// =========================================================
 // 1. 数据源获取 (底层网络层)
 // =========================================================
 
@@ -167,7 +182,7 @@ export async function handleDiyp(request, url, ctx, env) {
     }
   }
 
-  const ch = url.searchParams.get('ch') || url.searchParams.get('channel') || url.searchParams.get('id');
+  const ch = getRawQueryParam(url, 'ch', 'channel', 'id');
   let date = url.searchParams.get('date');
   const currentPath = url.pathname;
   
