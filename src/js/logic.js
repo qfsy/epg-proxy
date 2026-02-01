@@ -177,11 +177,9 @@ export async function handleDiyp(request, url, ctx, env) {
       const subDays = parseInt(m[1], 10);
       const d = new Date();
       d.setDate(d.getDate() - subDays);
-
       const yyyy = d.getFullYear();
       const mm = String(d.getMonth() + 1).padStart(2, '0');
       const dd = String(d.getDate()).padStart(2, '0');
-
       date = `${yyyy}-${mm}-${dd}`;
     }
   }
