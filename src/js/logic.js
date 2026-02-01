@@ -1,7 +1,9 @@
+// 文件路径: src/js/logic.js
 /**
  * 核心业务逻辑模块
  * 处理 EPG 下载、流式传输、缓存以及 DIYP 接口逻辑
  * [v2.9 配置增强] 支持通过环境变量配置核心参数 (超时、缓存大小、熔断时间等)
+ * [v3.0 状态增强] 导出数据源更新时间供前端显示
  */
 
 import { smartFind, isGzipContent } from './utils.js';
@@ -287,4 +289,45 @@ async function fetchAndFind(ctx, sourceUrl, ch, date, originUrl, env, currentPat
   } finally {
     PENDING_REQUESTS.delete(sourceUrl);
   }
+}
+
+/**
+ * 获取数据源最后更新时间 (v3.0 新增)
+ * 供前端展示使用，直接读取内存中的 fetchTime
+ */
+export function getLastUpdateTimes(env) {
+  const mainUrl = env.EPG_URL;
+  const backupUrl = env.EPG_URL_BACKUP;
+
+  // 格式化时间戳为北京时间 (MM-DD HH:mm:ss)
+  const formatTime = (ts) => {
+    if (!ts) return "等待更新";
+    const date = new Date(ts);
+    return date.toLocaleString('zh-CN', {
+        timeZone: 'Asia/Shanghai',
+        hour12: false,
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+    });
+  };
+
+  const getMainTime = () => {
+     const item = MEMORY_CACHE_MAP.get(mainUrl);
+     // 如果有缓存对象，且有 fetchTime，则返回
+     return item ? formatTime(item.fetchTime) : "等待首次请求";
+  };
+
+  const getBackupTime = () => {
+     if (!backupUrl) return null;
+     const item = MEMORY_CACHE_MAP.get(backupUrl);
+     return item ? formatTime(item.fetchTime) : "等待调用";
+  };
+
+  return {
+    main: getMainTime(),
+    backup: getBackupTime()
+  };
 }

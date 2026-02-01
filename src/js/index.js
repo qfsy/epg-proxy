@@ -3,10 +3,11 @@
  * EPG Proxy Server (模块化重构版)
  * 入口文件：负责路由分发与环境检查
  * [优化] 增加全局 OPTIONS 处理和路由路径归一化
+ * [v3.0] 引入 getLastUpdateTimes 以支持前端显示
  */
 
-// 引入 CORS_HEADERS 常量
-import { handleDiyp, handleDownload, CORS_HEADERS } from './logic.js';
+// 引入 CORS_HEADERS 常量和新的时间获取函数
+import { handleDiyp, handleDownload, CORS_HEADERS, getLastUpdateTimes } from './logic.js';
 import { getSetupGuideHTML, getUsageHTML } from '../front/templates.js';
 
 export default {
@@ -54,7 +55,8 @@ export default {
           
         default:
           // 默认首页
-          return new Response(getUsageHTML(request.url), {
+          // [v3.0] 传递 env 和时间信息给前端模板
+          return new Response(getUsageHTML(request.url, env, getLastUpdateTimes(env)), {
              headers: { "Content-Type": "text/html; charset=utf-8" }
           });
       }

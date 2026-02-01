@@ -12,8 +12,12 @@ import { renderPage } from './layout.js';
 export function getSetupGuideHTML() {
   const title = "服务未配置 - EPG Proxy";
   const content = `
-        <h1><span class="icon">⚠️</span> 服务尚未配置</h1>
-        <p>EPG Proxy 已成功运行，但检测到核心环境变量缺失。请按照以下步骤完成配置。</p>
+        <div class="header-wrapper">
+          <div class="header-main">
+            <h1><span class="icon">⚠️</span> 服务尚未配置</h1>
+            <p>EPG Proxy 已成功运行，但检测到核心环境变量缺失。请按照以下步骤完成配置。</p>
+          </div>
+        </div>
         
         <div class="card">
             <h3>第一步：环境配置</h3>
@@ -65,8 +69,11 @@ export function getSetupGuideHTML() {
 
 /**
  * 生成使用说明页面 (服务正常运行时的主页)
+ * [v3.0 更新] 
+ * 1. 接收 env 参数以判断是否有备用源
+ * 2. 接收 updateTimes 参数以显示最近更新时间
  */
-export function getUsageHTML(baseUrl) {
+export function getUsageHTML(baseUrl, env, updateTimes) {
   // 获取当前北京时间
   const now = new Date();
   const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
@@ -86,10 +93,43 @@ export function getUsageHTML(baseUrl) {
   const xmlUrl = `${baseUrl}epg/epg.xml`;
   const gzUrl = `${baseUrl}epg/epg.xml.gz`;
 
+  // [v3.0] 判断是否有备用源
+  const hasBackup = !!env.EPG_URL_BACKUP;
+
+  // [v3.0] 动态文案
+  const descriptionText = hasBackup
+    ? "配置加载成功，主备双源模式就绪。点击下方链接即可复制。"
+    : "配置加载成功，当前未设置备用源，将采用单源模式运行。点击下方链接即可复制。";
+
+  const downloadNote = hasBackup ? "（仅主源）" : "";
+
+  // [v3.0] 构造状态看板 HTML
+  let statusPanelHTML = `
+    <div class="status-panel">
+      <span class="status-title">数据源更新时间</span>
+      <div class="status-row">
+        <span class="status-label">主源</span>
+        <span class="status-value">${updateTimes.main}</span>
+      </div>`;
+  
+  if (hasBackup) {
+    statusPanelHTML += `
+      <div class="status-row">
+        <span class="status-label">备用源</span>
+        <span class="status-value">${updateTimes.backup}</span>
+      </div>`;
+  }
+  statusPanelHTML += `</div>`;
+
   const title = "EPG Proxy 服务运行中";
   const content = `
-        <h1><span class="icon">✅</span> EPG Proxy 服务运行中</h1>
-        <p>配置加载成功，主备双源模式就绪。点击下方链接即可复制。</p>
+        <div class="header-wrapper">
+          <div class="header-main">
+            <h1><span class="icon">✅</span> EPG Proxy 服务运行中</h1>
+            <p>${descriptionText}</p>
+          </div>
+          ${statusPanelHTML}
+        </div>
         
         <div class="card">
             <h3>1. DIYP 接口 (智能聚合)</h3>
@@ -138,7 +178,7 @@ export function getUsageHTML(baseUrl) {
         </div>
         
         <div class="card">
-            <h3>3. XML 下载 (仅主源)</h3>
+            <h3>3. XML 下载 ${downloadNote}</h3>
             <p class="desc">标准 XML 格式，适合不支持接口查询的播放器。</p>
             <div class="code-box" onclick="copyText(this, '${xmlUrl}')">
                 <code>${xmlUrl}</code>
@@ -147,7 +187,7 @@ export function getUsageHTML(baseUrl) {
         </div>
         
         <div class="card">
-            <h3>4. GZ 下载 (仅主源)</h3>
+            <h3>4. GZ 下载 ${downloadNote}</h3>
             <p class="desc">Gzip 压缩格式，推荐 TiviMate 使用，节省带宽。</p>
             <div class="code-box" onclick="copyText(this, '${gzUrl}')">
                 <code>${gzUrl}</code>

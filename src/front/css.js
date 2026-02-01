@@ -41,8 +41,63 @@ export const CSS_STYLES = `
     min-height: 100vh; 
   }
   .container { background: var(--card-bg); width: 100%; max-width: 800px; padding: 2.5rem; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); border: 1px solid var(--border); }
-  h1 { font-size: 1.8rem; font-weight: 700; margin-bottom: 1rem; color: var(--text); display: flex; align-items: center; gap: 10px; }
-  h1 .icon { font-size: 2rem; }
+  
+  /* === 头部布局样式 (v3.0 新增) === */
+  .header-wrapper {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 20px;
+      margin-bottom: 2rem;
+      flex-wrap: wrap; /* 移动端自动换行 */
+  }
+  .header-main {
+      flex: 1;
+      min-width: 280px;
+  }
+  .header-main h1 { 
+      font-size: 1.8rem; 
+      font-weight: 700; 
+      margin-top: 0;
+      margin-bottom: 0.5rem; 
+      color: var(--text); 
+      display: flex; 
+      align-items: center; 
+      gap: 10px; 
+  }
+  .header-main p {
+      margin-bottom: 0;
+  }
+  .header-main h1 .icon { font-size: 2rem; }
+  
+  /* === 状态看板样式 (v3.0 新增) === */
+  .status-panel {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 16px;
+      font-size: 0.85rem;
+      min-width: 220px;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+  }
+  .status-title {
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 4px;
+      display: block;
+  }
+  .status-row {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 4px;
+      align-items: center;
+  }
+  .status-row:last-child { margin-bottom: 0; }
+  .status-label { color: var(--text-muted); }
+  .status-value { font-family: monospace; font-weight: 600; color: var(--primary); }
+
   p { color: var(--text-muted); margin-bottom: 1.5rem; }
   .card { border: 1px solid var(--border); border-radius: 8px; padding: 1.5rem; margin-bottom: 1.5rem; background: var(--bg); }
   .card h3 { margin-top: 0; font-size: 1.1rem; color: var(--text); margin-bottom: 0.5rem; }
