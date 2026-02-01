@@ -168,7 +168,7 @@ export async function handleDiyp(request, url, ctx, env) {
   }
 
   const ch = url.searchParams.get('ch') || url.searchParams.get('channel') || url.searchParams.get('id');
-  const date = url.searchParams.get('date');
+  let date = url.searchParams.get('date');
   const currentPath = url.pathname;
   
   if (date) {
