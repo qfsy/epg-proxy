@@ -480,7 +480,7 @@ function normalizeChannelId(rawCh) {
   }
 
   // 2. 尝试剔除常见后缀后再查找 (保护 CCTV5+，正则不包含 +)
-  const baseName = cleanCh.replace(/(HD|SD|高清|超清|4K|8K|综合|频道|台|字幕|分级)$/g, '');
+  const baseName = cleanCh.replace(/(HD|SD|高清|超清|4K|8K|综合|频道|台|字幕|低码|分级)$/g, '');
   
   return FLAT_CHANNELS[baseName] || baseName;
 }
