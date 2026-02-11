@@ -11,11 +11,11 @@ compatibility_date = "2024-01-29"
 # ===========================================================
 
 # [必填项]
- EPG_URL = "https://static.188766.xyz/e.xml.gz"  # 主 EPG 源地址
+ EPG_URL = "http://e.erw.cc/all.xml.gz"  # 主 EPG 源地址
 
 # [可选项] (以下均为默认值，如需修改请在 Dashboard 添加同名变量)
 # [vars]
-# EPG_URL_BACKUP = ""                  # 备用源地址，主源失败时使用
+ EPG_URL_BACKUP = "https://epg.112114.xyz/pp.xml.gz"                  # 备用源地址，主源失败时使用
 # CACHE_TTL = "3600"                   # 缓存时间 (秒)，默认 1 小时
 # FETCH_TIMEOUT = "20000"              # 上游请求超时 (毫秒)，默认 20 秒
 # MAX_MEMORY_CACHE_CHARS = "41943040"  # 内存缓存上限 (字符数)，40M字符 ≈ 80MB，默认 40*1024*1024
